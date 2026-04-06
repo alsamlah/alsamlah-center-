@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import type {
   Floor, MenuItem, Session, OrderItem,
   HistoryRecord, Debt, Tenant, Branch, SpecialGuest, Customer, Tournament,
+  InspectionRegister,
 } from "@/lib/supabase";
 import { getBusinessDay } from "@/lib/utils";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES } from "@/lib/defaults";
@@ -29,6 +30,7 @@ export interface TenantData {
   debts: Debt[];
   customers: Customer[];
   tournaments: Tournament[];
+  registers: InspectionRegister[];
   pins: Record<UserRole, string>;
   roleNames: Record<UserRole, string>;
   settings: SystemSettings;
@@ -69,6 +71,7 @@ export async function loadTenantData(
     counterRes,
     customersRes,
     tournamentsRes,
+    registersRes,
   ] = await Promise.allSettled([
     supabase.from("floors").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("menu_items").select("*").eq("tenant_id", tenantId).limit(1).single(),
@@ -79,6 +82,7 @@ export async function loadTenantData(
     supabase.from("invoice_counter").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("customers").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("tournaments").select("data").eq("tenant_id", tenantId),
+    supabase.from("inspection_registers").select("*").eq("tenant_id", tenantId),
   ]);
 
   // ── Floors ──
@@ -135,6 +139,12 @@ export async function loadTenantData(
     ? tournamentsRows.map((r) => r.data as Tournament)
     : parse(ls("als-tournaments"), []);
 
+  // ── Inspection Registers ──
+  const registersRows = registersRes.status === "fulfilled" ? registersRes.value.data ?? [] : [];
+  const registers: InspectionRegister[] = registersRows.length > 0
+    ? registersRows.map((r) => r.data as InspectionRegister)
+    : parse(ls("als-registers"), []);
+
   // ── Logo (still stored in tenant row, base64 from localStorage or tenant.logo_url) ──
   const logo: string | null = ls("als-logo");
 
@@ -151,12 +161,13 @@ export async function loadTenantData(
   lsSet("als-debts", debts);
   lsSet("als-customers", customers);
   lsSet("als-tournaments", tournaments);
+  lsSet("als-registers", registers);
   lsSet("als-pins", pins);
   lsSet("als-role-names", roleNames);
   lsSet("als-settings", settings);
   lsSet("als-invoice-counter", String(invoiceCounter));
 
-  return { floors, menu, sessions, orders, history, debts, customers, tournaments, pins, roleNames, settings, logo, invoiceCounter };
+  return { floors, menu, sessions, orders, history, debts, customers, tournaments, registers, pins, roleNames, settings, logo, invoiceCounter };
 }
 
 // ── Tenant & Business Profile ─────────────────────────────────────────────────
@@ -495,6 +506,44 @@ export function subscribeToTournaments(tenantId: string, cb: RealtimeCallback) {
       event: "*",
       schema: "public",
       table: "tournaments",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
+
+// ── Inspection Registers ─────────────────────────────────────────────────────
+
+export async function upsertRegister(
+  tenantId: string,
+  branchId: string | null,
+  register: InspectionRegister,
+  allRegisters: InspectionRegister[],
+) {
+  const updated = allRegisters.some((r) => r.type === register.type)
+    ? allRegisters.map((r) => (r.type === register.type ? register : r))
+    : [...allRegisters, register];
+  lsSet("als-registers", updated);
+
+  await supabase.from("inspection_registers").upsert(
+    {
+      id: register.id,
+      tenant_id: tenantId,
+      branch_id: branchId,
+      register_type: register.type,
+      data: register,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "tenant_id,register_type" }
+  );
+}
+
+export function subscribeToRegisters(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`registers:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "inspection_registers",
       filter: `tenant_id=eq.${tenantId}`,
     }, (payload) => cb(payload as Record<string, unknown>))
     .subscribe();
