@@ -178,6 +178,15 @@ export const T: Record<Language, Record<string, string>> = {
     bye: "إعفاء", participantCount: "المشاركون", paidCount: "دفعوا", unpaidCount: "لم يدفعوا",
     confirmCancel: "تأكيد إلغاء البطولة؟", scoreP1: "نتيجة ١", scoreP2: "نتيجة ٢", setWinner: "تحديد الفائز",
     tps: "بلايستيشن", tbilliard: "بلياردو", tchess: "شطرنج", ttennis: "تنس الطاولة", tbaloot: "بلوت", tother: "أخرى",
+    // ── Registers ──
+    registers: "سجلات المتابعة", addEntry: "إضافة سجل", editEntry: "تعديل سجل",
+    exportExcel: "تصدير Excel", deleteEntry: "حذف",
+    equipmentMaint: "صيانة الأجهزة", cleaningLog: "النظافة",
+    playstationMaint: "البلايستيشن", pestControl: "رش المبيدات",
+    regStatus: "الحالة", regDate: "التاريخ", regNotes: "ملاحظات",
+    regOk: "تعمل", regPending: "معلق", regIssue: "عطل",
+    noEntries: "لا توجد سجلات", confirmDeleteEntry: "حذف هذا السجل؟",
+    regSaved: "تم الحفظ", regDeleted: "تم الحذف",
   },
   en: {
     appName: "ALSAMLAH",
@@ -295,5 +304,14 @@ export const T: Record<Language, Record<string, string>> = {
     bye: "BYE", participantCount: "Participants", paidCount: "Paid", unpaidCount: "Unpaid",
     confirmCancel: "Confirm cancel tournament?", scoreP1: "Score 1", scoreP2: "Score 2", setWinner: "Set Winner",
     tps: "PlayStation", tbilliard: "Billiards", tchess: "Chess", ttennis: "Table Tennis", tbaloot: "Baloot", tother: "Other",
+    // Registers
+    registers: "Inspection Logs", addEntry: "Add Entry", editEntry: "Edit Entry",
+    exportExcel: "Export Excel", deleteEntry: "Delete",
+    equipmentMaint: "Equipment Maintenance", cleaningLog: "Cleaning",
+    playstationMaint: "PlayStation", pestControl: "Pest Control",
+    regStatus: "Status", regDate: "Date", regNotes: "Notes",
+    regOk: "OK", regPending: "Pending", regIssue: "Issue",
+    noEntries: "No entries yet", confirmDeleteEntry: "Delete this entry?",
+    regSaved: "Saved", regDeleted: "Deleted",
   },
 };

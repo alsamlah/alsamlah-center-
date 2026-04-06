@@ -275,3 +275,40 @@ export interface CalcResult {
   isOpen: boolean;
   graceMins: number;
 }
+
+// ── Inspection Registers ────────────────────────────────────────────────────
+
+export type RegisterType = "equipment" | "cleaning" | "playstation" | "pestcontrol"
+
+export interface RegisterColumn {
+  key: string
+  label: string          // Arabic display label
+  labelEn: string        // English display label
+  type: "text" | "date" | "select" | "status"
+  options?: string[]     // for "select" type
+}
+
+export interface RegisterSchema {
+  name: string           // Arabic name
+  nameEn: string         // English name
+  icon: string
+  columns: RegisterColumn[]
+  statusOptions: string[]
+}
+
+export interface RegisterEntry {
+  id: string
+  fields: Record<string, string>
+  status: "ok" | "pending" | "issue"
+  createdAt: number
+  updatedAt: number
+}
+
+export interface InspectionRegister {
+  id: string
+  type: RegisterType
+  entries: RegisterEntry[]
+  updatedAt: number
+  updatedBy: string
+  branchId?: string
+}
