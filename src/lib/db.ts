@@ -12,6 +12,7 @@ import type {
   Floor, MenuItem, Session, OrderItem,
   HistoryRecord, Debt, Tenant, Branch, SpecialGuest, Customer,
 } from "@/lib/supabase";
+import { getBusinessDay } from "@/lib/utils";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES } from "@/lib/defaults";
 import type { SystemSettings } from "@/lib/settings";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
@@ -276,20 +277,53 @@ export async function syncSettings(
 
 // ── Invoice Counter ───────────────────────────────────────────────────────────
 
-export async function getAndIncrementInvoice(tenantId: string): Promise<number> {
+/**
+ * Fetches the current invoice counter, resets to 1 if the business day has
+ * changed, increments it, and returns the current value zero-padded to 4 digits.
+ * e.g. "0001", "0042", "1337"
+ */
+export async function getAndIncrementInvoice(
+  tenantId: string,
+  eodHour = 5,
+): Promise<string> {
   const { data } = await supabase
     .from("invoice_counter")
-    .select("counter")
+    .select("counter, last_reset_date")
     .eq("tenant_id", tenantId)
     .single();
 
-  const current = data?.counter ?? 1;
+  const today = getBusinessDay(Date.now(), eodHour);
+  const lastReset: string = (data as { last_reset_date?: string } | null)?.last_reset_date ?? "";
+  const dayChanged = lastReset !== today;
+
+  const current = dayChanged ? 1 : (data?.counter ?? 1);
+  const next = current + 1;
+
   await supabase.from("invoice_counter")
-    .update({ counter: current + 1 })
+    .update({
+      counter: next,
+      ...(dayChanged ? { last_reset_date: today } : {}),
+    })
     .eq("tenant_id", tenantId);
 
-  lsSet("als-invoice-counter", String(current + 1));
-  return current;
+  lsSet("als-invoice-counter", String(next));
+  return String(current).padStart(4, "0");
+}
+
+// ── History Record Mutations ──────────────────────────────────────────────────
+
+export async function updateHistoryRecord(tenantId: string, record: HistoryRecord) {
+  await supabase.from("history")
+    .update({ data: record })
+    .eq("tenant_id", tenantId)
+    .eq("data->>id", record.id);
+}
+
+export async function deleteHistoryRecord(tenantId: string, recordId: string) {
+  await supabase.from("history")
+    .delete()
+    .eq("tenant_id", tenantId)
+    .eq("data->>id", recordId);
 }
 
 // ── Load helpers (used by realtime callbacks) ─────────────────────────────────

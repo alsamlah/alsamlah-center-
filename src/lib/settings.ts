@@ -11,6 +11,7 @@ export interface SystemSettings {
   fontSize: FontSize;
   lang: Language;
   loyaltyPointsRatio: number; // SAR per 1 point (default 50)
+  endOfDayHour: number;       // hour (0–23) at which the business day resets (default 5 = 5AM)
 }
 
 export const DEFAULT_SETTINGS: SystemSettings = {
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   fontSize: "md",
   lang: "ar",
   loyaltyPointsRatio: 50,
+  endOfDayHour: 5,
 };
 
 export const FONTS: Record<FontFamily, { name: string; nameAr: string; css: string; google: string }> = {
@@ -117,6 +119,32 @@ export const T: Record<Language, Record<string, string>> = {
     noActiveGuests: "لا يوجد زوار خاصون الآن", markLeft: "غادر",
     inspectorAlert: "مراقب متواجد الآن — تنبيه",
     loyaltyPointsRatio: "معدل نقاط الولاء", perSAR: "ريال = نقطة واحدة",
+    // Day management / invoice system
+    invoiceNo: "رقم الفاتورة",
+    hold: "تعليق ⏸", held: "معلق",
+    roomOccupied: "الغرفة مشغولة", roomFree: "الغرفة شاغلة",
+    completePayment: "إتمام الدفع",
+    editInvoice: "تعديل الفاتورة", deleteInvoice: "حذف الفاتورة",
+    endOfDay: "إغلاق اليوم",
+    openingBalance: "رصيد الافتتاح", expectedDrawer: "المتوقع في الصندوق",
+    itemSales: "مبيعات الأصناف", qty: "الكمية",
+    exportCsv: "تصدير Excel", exportPdf: "تصدير PDF",
+    bulkSelect: "تحديد متعدد", selectAll: "تحديد الكل",
+    clearSelection: "إلغاء التحديد",
+    dateRange: "نطاق", dateFrom: "من", dateTo: "إلى",
+    printReport: "طباعة التقرير",
+    heldSessions: "الجلسات المعلقة",
+    selectToday: "تحديد اليوم", selectWeek: "تحديد الأسبوع", selectMonth: "تحديد الشهر",
+    overview: "نظرة عامة", items: "الأصناف",
+    endOfDayHour: "وقت نهاية اليوم",
+    endOfDayHourNote: "كل شيء قبل هذا الوقت يُحسب لليوم السابق",
+    bulkDelete: "حذف المحدد",
+    editOrderLines: "تعديل الطلبات",
+    removeItem: "حذف الصنف",
+    totalOverride: "إجمالي مُعدَّل",
+    heldOccupied: "معلق — مشغول", heldFree: "معلق — شاغل",
+    holdTitle: "تعليق الجلسة", holdKeepOccupied: "الغرفة تبقى مشغولة",
+    holdFreeRoom: "تحرير الغرفة", holdConfirm: "تأكيد التعليق",
   },
   en: {
     appName: "ALSAMLAH",
@@ -181,5 +209,31 @@ export const T: Record<Language, Record<string, string>> = {
     noActiveGuests: "No special guests currently", markLeft: "Mark as Left",
     inspectorAlert: "Inspector on premises — Alert",
     loyaltyPointsRatio: "Loyalty Points Rate", perSAR: "SAR = 1 point",
+    // Day management / invoice system
+    invoiceNo: "Invoice #",
+    hold: "Hold ⏸", held: "Held",
+    roomOccupied: "Room stays occupied", roomFree: "Free the room",
+    completePayment: "Complete Payment",
+    editInvoice: "Edit Invoice", deleteInvoice: "Delete Invoice",
+    endOfDay: "End of Day",
+    openingBalance: "Opening Balance", expectedDrawer: "Expected in Drawer",
+    itemSales: "Item Sales", qty: "Qty",
+    exportCsv: "Export Excel", exportPdf: "Export PDF",
+    bulkSelect: "Multi-select", selectAll: "Select All",
+    clearSelection: "Clear Selection",
+    dateRange: "Range", dateFrom: "From", dateTo: "To",
+    printReport: "Print Report",
+    heldSessions: "Held Sessions",
+    selectToday: "Select Today", selectWeek: "Select Week", selectMonth: "Select Month",
+    overview: "Overview", items: "Items",
+    endOfDayHour: "End-of-Day Hour",
+    endOfDayHourNote: "Hours before this time count as the previous day",
+    bulkDelete: "Delete Selected",
+    editOrderLines: "Edit Orders",
+    removeItem: "Remove Item",
+    totalOverride: "Override Total",
+    heldOccupied: "Held — Occupied", heldFree: "Held — Free",
+    holdTitle: "Hold Session", holdKeepOccupied: "Keep room occupied",
+    holdFreeRoom: "Free the room", holdConfirm: "Confirm Hold",
   },
 };

@@ -11,7 +11,7 @@ const SAR = `<svg width="13" height="14.5" viewBox="0 0 1124.14 1256.39" fill="c
 // ── Data types ──
 
 export interface SessionPrintData {
-  invoiceNo: number;
+  invoiceNo: string | number; // string "0001" (new) or legacy number
   itemName: string;
   zoneName: string;
   customerName: string;
@@ -40,7 +40,49 @@ export interface DebtPrintData {
   note?: string;
   date: number;
   logo?: string | null;
-  invoiceNo?: number;
+  invoiceNo?: string | number;
+}
+
+export interface ShiftReportPrintData {
+  businessDate: string;          // "YYYY-MM-DD"
+  openedAt: number;
+  closedAt: number;
+  openedBy: string;
+  closedBy: string;
+  cashFloat: number;
+  sessionCount: number;
+  totalRevenue: number;
+  cashRevenue: number;
+  cardRevenue: number;
+  transferRevenue: number;
+  debtTotal: number;
+  discountTotal: number;
+  netRevenue: number;
+  ordersRevenue: number;
+  timeRevenue: number;
+  heldCount: number;
+  heldTotal: number;
+  expectedCashInDrawer: number;
+  byZone: Record<string, { count: number; rev: number }>;
+  itemSales: { name: string; icon: string; qty: number; rev: number }[];
+  logo?: string | null;
+}
+
+export interface StatsReportPrintData {
+  dateLabel: string;             // e.g. "اليوم" or "١ أبريل – ٥ أبريل"
+  sessionCount: number;
+  totalRevenue: number;
+  cashRevenue: number;
+  cardRevenue: number;
+  transferRevenue: number;
+  debtTotal: number;
+  discountTotal: number;
+  netRevenue: number;
+  ordersRevenue: number;
+  timeRevenue: number;
+  byZone: Record<string, { count: number; rev: number }>;
+  itemSales: { name: string; icon: string; qty: number; rev: number }[];
+  logo?: string | null;
 }
 
 // ── Formatting helpers ──
@@ -62,7 +104,8 @@ const fmtDur = (ms: number) => {
 const payLabel = (m: string) =>
   ({ cash: "💵 كاش", card: "💳 شبكة", transfer: "📲 تحويل" }[m] ?? m);
 
-const invNo = (n: number) => `#${String(n).padStart(4, "0")}`;
+const invNo = (n: string | number | undefined) =>
+  n != null ? `#${String(n).padStart(4, "0")}` : "----";
 
 // ── Open print window ──
 
@@ -371,4 +414,229 @@ export function printSession(data: SessionPrintData, type: PrintType) {
 export function printDebt(data: DebtPrintData, type: PrintType) {
   const html = type === "thermal" ? thermalDebtHTML(data) : a4DebtHTML(data);
   openAndPrint(html, type);
+}
+
+// ══════════════════════════════════════════
+// A4 — Shift / End-of-Day Report
+// ══════════════════════════════════════════
+
+function shiftReportHTML(d: ShiftReportPrintData): string {
+  const logoSection = d.logo
+    ? `<img src="${d.logo}" style="height:60px;object-fit:contain;max-width:220px">`
+    : `<div style="font-size:24px;font-weight:900;letter-spacing:2px;color:#6c8cff">AL<span style="color:#1a1a2e">SAMLAH</span></div>`;
+
+  const shiftDuration = (() => {
+    const ms = d.closedAt - d.openedAt;
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return `${h} ساعة ${m > 0 ? `${m} د` : ""}`;
+  })();
+
+  const zoneRows = Object.entries(d.byZone).map(([zone, { count, rev }]) =>
+    `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eef0f8">${zone}</td>
+      <td style="padding:8px 12px;text-align:center;border-bottom:1px solid #eef0f8">${count}</td>
+      <td style="padding:8px 12px;text-align:left;border-bottom:1px solid #eef0f8;font-weight:600">${rev} ${SAR}</td>
+    </tr>`
+  ).join("");
+
+  const itemRows = d.itemSales.slice(0, 10).map((s, i) =>
+    `<tr style="background:${i % 2 === 0 ? "#f7f8ff" : "#fff"}">
+      <td style="padding:7px 12px;border-bottom:1px solid #eef0f8">${s.icon} ${s.name}</td>
+      <td style="padding:7px 12px;text-align:center;border-bottom:1px solid #eef0f8;font-weight:600">${s.qty}</td>
+      <td style="padding:7px 12px;text-align:left;border-bottom:1px solid #eef0f8;font-weight:600">${s.rev} ${SAR}</td>
+    </tr>`
+  ).join("");
+
+  return `<!DOCTYPE html><html dir="rtl" lang="ar">
+<head><meta charset="UTF-8">
+<style>
+  @page { size:A4; margin:15mm 18mm; }
+  * { box-sizing:border-box; }
+  body { font-family:'Segoe UI',Tahoma,Arial,sans-serif; color:#1a1a2e; margin:0; font-size:12px; line-height:1.5; }
+  table { border-collapse:collapse; width:100%; margin-bottom:20px; }
+  th { background:#6c8cff; color:#fff; padding:9px 12px; text-align:right; font-size:11px; font-weight:600; }
+  th:last-child { text-align:left; }
+  .section-title { font-size:11px; font-weight:700; color:#6c8cff; border-bottom:2px solid #6c8cff; padding-bottom:4px; margin:18px 0 12px; letter-spacing:0.5px; }
+  .card { background:#f7f8ff; border-radius:8px; padding:12px 14px; }
+  .card label { font-size:10px; color:#999; display:block; margin-bottom:2px; }
+  .card .val { font-size:16px; font-weight:800; color:#1a1a2e; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:18px; }
+  .highlight { color:#6c8cff; }
+  .danger { color:#ef4444; }
+  .success { color:#22c55e; }
+  @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style></head><body>
+
+<!-- Header -->
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;padding-bottom:16px;border-bottom:2px solid #6c8cff">
+  <div>${logoSection}</div>
+  <div style="text-align:left">
+    <div style="font-size:20px;font-weight:900;color:#6c8cff">تقرير نهاية اليوم</div>
+    <div style="font-size:13px;font-weight:700;color:#1a1a2e;margin-top:2px">${d.businessDate}</div>
+    <div style="font-size:11px;color:#aaa;margin-top:4px">فتح: ${fmtTime(d.openedAt)} — إغلاق: ${fmtTime(d.closedAt)}</div>
+    <div style="font-size:11px;color:#aaa">المدة: ${shiftDuration}</div>
+  </div>
+</div>
+
+<!-- Cash Reconciliation -->
+<div class="section-title">تسوية الصندوق</div>
+<div class="grid4">
+  <div class="card"><label>رصيد الافتتاح</label><div class="val">${d.cashFloat} ${SAR}</div></div>
+  <div class="card"><label>إيراد نقدي</label><div class="val success">+ ${d.cashRevenue} ${SAR}</div></div>
+  <div class="card" style="background:#f0fff4"><label>المتوقع في الصندوق</label><div class="val highlight">${d.expectedCashInDrawer} ${SAR}</div></div>
+  <div class="card"><label>عدد الجلسات</label><div class="val">${d.sessionCount}</div></div>
+</div>
+
+<!-- Revenue Summary -->
+<div class="section-title">ملخص الإيراد</div>
+<div class="grid4">
+  <div class="card"><label>إجمالي الإيراد</label><div class="val">${d.totalRevenue} ${SAR}</div></div>
+  <div class="card"><label>إيراد الوقت</label><div class="val">${d.timeRevenue} ${SAR}</div></div>
+  <div class="card"><label>إيراد الطلبات</label><div class="val">${d.ordersRevenue} ${SAR}</div></div>
+  <div class="card"><label>صافي الإيراد</label><div class="val highlight">${d.netRevenue} ${SAR}</div></div>
+</div>
+<div class="grid3">
+  <div class="card"><label>الخصومات</label><div class="val danger">− ${d.discountTotal} ${SAR}</div></div>
+  <div class="card"><label>الديون الجديدة</label><div class="val danger">${d.debtTotal} ${SAR}</div></div>
+  <div class="card"><label>جلسات معلقة</label><div class="val">${d.heldCount} جلسة / ${d.heldTotal} ${SAR}</div></div>
+</div>
+
+<!-- Payment Methods -->
+<div class="section-title">طرق الدفع</div>
+<div class="grid3">
+  <div class="card"><label>💵 نقدي</label><div class="val">${d.cashRevenue} ${SAR}</div></div>
+  <div class="card"><label>💳 شبكة</label><div class="val">${d.cardRevenue} ${SAR}</div></div>
+  <div class="card"><label>📲 تحويل</label><div class="val">${d.transferRevenue} ${SAR}</div></div>
+</div>
+
+${zoneRows ? `
+<!-- Zone Breakdown -->
+<div class="section-title">حسب القسم</div>
+<table>
+  <thead><tr><th>القسم</th><th style="text-align:center">الجلسات</th><th style="text-align:left">الإيراد</th></tr></thead>
+  <tbody>${zoneRows}</tbody>
+</table>` : ""}
+
+${itemRows ? `
+<!-- Top Items -->
+<div class="section-title">أكثر الأصناف مبيعاً (أعلى ١٠)</div>
+<table>
+  <thead><tr><th>الصنف</th><th style="text-align:center">الكمية</th><th style="text-align:left">الإيراد</th></tr></thead>
+  <tbody>${itemRows}</tbody>
+</table>` : ""}
+
+<!-- Staff -->
+<div style="margin-top:16px;font-size:11px;color:#aaa;display:flex;gap:24px">
+  <span>فتح بواسطة: <strong style="color:#1a1a2e">${d.openedBy}</strong></span>
+  <span>أغلق بواسطة: <strong style="color:#1a1a2e">${d.closedBy}</strong></span>
+</div>
+
+<div style="text-align:center;margin-top:24px;padding-top:14px;border-top:1px solid #eee;color:#aaa;font-size:11px">
+  مركز الصملة للترفيه — ALSAMLAH Entertainment Center
+</div>
+</body></html>`;
+}
+
+// ══════════════════════════════════════════
+// A4 — Period Stats Report
+// ══════════════════════════════════════════
+
+function statsReportHTML(d: StatsReportPrintData): string {
+  const logoSection = d.logo
+    ? `<img src="${d.logo}" style="height:60px;object-fit:contain;max-width:220px">`
+    : `<div style="font-size:24px;font-weight:900;letter-spacing:2px;color:#6c8cff">AL<span style="color:#1a1a2e">SAMLAH</span></div>`;
+
+  const zoneRows = Object.entries(d.byZone).map(([zone, { count, rev }]) =>
+    `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eef0f8">${zone}</td>
+      <td style="padding:8px 12px;text-align:center;border-bottom:1px solid #eef0f8">${count}</td>
+      <td style="padding:8px 12px;text-align:left;border-bottom:1px solid #eef0f8;font-weight:600">${rev} ${SAR}</td>
+    </tr>`
+  ).join("");
+
+  const itemRows = d.itemSales.map((s, i) =>
+    `<tr style="background:${i % 2 === 0 ? "#f7f8ff" : "#fff"}">
+      <td style="padding:7px 12px;border-bottom:1px solid #eef0f8">${s.icon} ${s.name}</td>
+      <td style="padding:7px 12px;text-align:center;border-bottom:1px solid #eef0f8;font-weight:600">${s.qty}</td>
+      <td style="padding:7px 12px;text-align:left;border-bottom:1px solid #eef0f8;font-weight:600">${s.rev} ${SAR}</td>
+    </tr>`
+  ).join("");
+
+  return `<!DOCTYPE html><html dir="rtl" lang="ar">
+<head><meta charset="UTF-8">
+<style>
+  @page { size:A4; margin:15mm 18mm; }
+  * { box-sizing:border-box; }
+  body { font-family:'Segoe UI',Tahoma,Arial,sans-serif; color:#1a1a2e; margin:0; font-size:12px; line-height:1.5; }
+  table { border-collapse:collapse; width:100%; margin-bottom:20px; }
+  th { background:#6c8cff; color:#fff; padding:9px 12px; text-align:right; font-size:11px; font-weight:600; }
+  th:last-child { text-align:left; }
+  .section-title { font-size:11px; font-weight:700; color:#6c8cff; border-bottom:2px solid #6c8cff; padding-bottom:4px; margin:18px 0 12px; }
+  .card { background:#f7f8ff; border-radius:8px; padding:12px 14px; }
+  .card label { font-size:10px; color:#999; display:block; margin-bottom:2px; }
+  .card .val { font-size:16px; font-weight:800; color:#1a1a2e; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:18px; }
+  .highlight { color:#6c8cff; }
+  .danger { color:#ef4444; }
+  @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style></head><body>
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;padding-bottom:16px;border-bottom:2px solid #6c8cff">
+  <div>${logoSection}</div>
+  <div style="text-align:left">
+    <div style="font-size:20px;font-weight:900;color:#6c8cff">تقرير الإيرادات</div>
+    <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-top:2px">${d.dateLabel}</div>
+    <div style="font-size:11px;color:#aaa;margin-top:4px">${new Date().toLocaleDateString("ar-SA", { year: "numeric", month: "long", day: "numeric" })}</div>
+  </div>
+</div>
+
+<div class="section-title">ملخص الإيراد</div>
+<div class="grid4">
+  <div class="card"><label>إجمالي الإيراد</label><div class="val">${d.totalRevenue} ${SAR}</div></div>
+  <div class="card"><label>إيراد الوقت</label><div class="val">${d.timeRevenue} ${SAR}</div></div>
+  <div class="card"><label>إيراد الطلبات</label><div class="val">${d.ordersRevenue} ${SAR}</div></div>
+  <div class="card"><label>صافي الإيراد</label><div class="val highlight">${d.netRevenue} ${SAR}</div></div>
+</div>
+<div class="grid3">
+  <div class="card"><label>عدد الجلسات</label><div class="val">${d.sessionCount}</div></div>
+  <div class="card"><label>الخصومات</label><div class="val danger">− ${d.discountTotal} ${SAR}</div></div>
+  <div class="card"><label>الديون</label><div class="val danger">${d.debtTotal} ${SAR}</div></div>
+</div>
+
+<div class="section-title">طرق الدفع</div>
+<div class="grid3">
+  <div class="card"><label>💵 نقدي</label><div class="val">${d.cashRevenue} ${SAR}</div></div>
+  <div class="card"><label>💳 شبكة</label><div class="val">${d.cardRevenue} ${SAR}</div></div>
+  <div class="card"><label>📲 تحويل</label><div class="val">${d.transferRevenue} ${SAR}</div></div>
+</div>
+
+${zoneRows ? `
+<div class="section-title">حسب القسم</div>
+<table>
+  <thead><tr><th>القسم</th><th style="text-align:center">الجلسات</th><th style="text-align:left">الإيراد</th></tr></thead>
+  <tbody>${zoneRows}</tbody>
+</table>` : ""}
+
+${itemRows ? `
+<div class="section-title">مبيعات الأصناف</div>
+<table>
+  <thead><tr><th>الصنف</th><th style="text-align:center">الكمية</th><th style="text-align:left">الإيراد</th></tr></thead>
+  <tbody>${itemRows}</tbody>
+</table>` : ""}
+
+<div style="text-align:center;margin-top:24px;padding-top:14px;border-top:1px solid #eee;color:#aaa;font-size:11px">
+  مركز الصملة للترفيه — ALSAMLAH Entertainment Center
+</div>
+</body></html>`;
+}
+
+export function printShiftReport(data: ShiftReportPrintData, _type: PrintType = "a4") {
+  openAndPrint(shiftReportHTML(data), "a4");
+}
+
+export function printStatsReport(data: StatsReportPrintData, _type: PrintType = "a4") {
+  openAndPrint(statsReportHTML(data), "a4");
 }

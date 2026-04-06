@@ -40,3 +40,14 @@ export const isThisMonth = (ts: number) => {
   const d = new Date(ts);
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
 };
+
+/**
+ * Returns the "business day" date string "YYYY-MM-DD".
+ * Hours 0 – (eodHour-1) belong to the PREVIOUS calendar day.
+ * e.g. 2AM on Apr 7 with eodHour=5 → "2026-04-06"
+ */
+export function getBusinessDay(ts = Date.now(), eodHour = 5): string {
+  const d = new Date(ts);
+  if (d.getHours() < eodHour) d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}

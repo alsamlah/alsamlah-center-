@@ -14,10 +14,13 @@ import {
   loadDebts, subscribeToSessions, subscribeToHistory, subscribeToDebts,
   syncSpecialGuests, loadSpecialGuests, subscribeToSpecialGuests,
   syncCustomers,
+  updateHistoryRecord as updateHistoryRecordDB,
+  deleteHistoryRecord as deleteHistoryRecordDB,
 } from "@/lib/db";
 import AuthScreen from "./AuthScreen";
 import RoleSelectScreen from "./RoleSelectScreen";
 import DetailView from "./DetailView";
+import HistoryView from "./HistoryView";
 import DebtsView from "./DebtsView";
 import StatsView from "./StatsView";
 import AdminView from "./AdminView";
@@ -55,6 +58,7 @@ export default function CashierSystem() {
   // ── Shift management ──
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [shiftHistory, setShiftHistory] = useState<ShiftRecord[]>([]);
+  const [lastClosedShift, setLastClosedShift] = useState<ShiftRecord | null>(null);
 
   // ── Customer loyalty ──
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -273,15 +277,16 @@ export default function CashierSystem() {
 
   const notify = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
-  const getInvoiceNo = async (): Promise<number> => {
+  const getInvoiceNo = async (): Promise<string> => {
+    const eodHour = settings.endOfDayHour ?? 5;
     if (tenantId) {
-      const n = await getAndIncrementInvoice(tenantId);
-      setInvoiceCounter(n + 1);
+      const n = await getAndIncrementInvoice(tenantId, eodHour);
       return n;
     }
+    // Offline fallback: use local counter, zero-padded
     const n = invoiceCounter;
     setInvoiceCounter((p) => p + 1);
-    return n;
+    return String(n).padStart(4, "0");
   };
 
   const getInfo = (itemId: string) => {
@@ -364,10 +369,20 @@ export default function CashierSystem() {
     });
   };
 
-  const endSession = (itemId: string, payMethod: string, debtAmt: number, discount: number) => {
+  const endSession = async (itemId: string, payMethod: string, debtAmt: number, discount: number) => {
     const sess = sessions[itemId]; if (!sess) return;
     const tot = calcTotal(itemId), info = getInfo(itemId), finalT = Math.max(0, tot.total - (discount || 0));
-    const record: HistoryRecord = { id: uid(), itemId, itemName: info?.name || "", zoneName: info?.zone?.name || "", customerName: sess.customerName, startTime: sess.startTime, endTime: Date.now(), duration: tot.elapsed, timePrice: tot.timePrice, orders: orders[itemId] || [], ordersTotal: tot.ordersTotal, total: finalT, payMethod, debtAmount: debtAmt || 0, discount: discount || 0, graceMins: sess.graceMins || 0, playerCount: sess.playerCount || 1, cashier: user?.name || "", sessionType: sess.sessionType || "ps" };
+    // Generate invoice number at session-end time (not print time)
+    const invoiceNo = await getInvoiceNo();
+    const record: HistoryRecord = {
+      id: uid(), itemId, itemName: info?.name || "", zoneName: info?.zone?.name || "",
+      customerName: sess.customerName, startTime: sess.startTime, endTime: Date.now(),
+      duration: tot.elapsed, timePrice: tot.timePrice, orders: orders[itemId] || [],
+      ordersTotal: tot.ordersTotal, total: finalT, payMethod, debtAmount: debtAmt || 0,
+      discount: discount || 0, graceMins: sess.graceMins || 0, playerCount: sess.playerCount || 1,
+      cashier: user?.name || "", sessionType: sess.sessionType || "ps",
+      invoiceNo, status: "paid",
+    };
     setHistory((p) => [record, ...p]);
     // Supabase: add to history + remove session
     if (tenantId) {
@@ -398,6 +413,46 @@ export default function CashierSystem() {
     notify(t.sessionEnded + " ✓"); setView("main"); setSelItem(null);
   };
 
+  // ── Hold session ──────────────────────────────────────────────────────────────
+  const holdSession = async (itemId: string, discount: number, keepOccupied: boolean) => {
+    const sess = sessions[itemId]; if (!sess) return;
+    const tot = calcTotal(itemId), info = getInfo(itemId);
+    const finalT = Math.max(0, tot.total - (discount || 0));
+    const invoiceNo = await getInvoiceNo();
+    const record: HistoryRecord = {
+      id: uid(), itemId, itemName: info?.name || "", zoneName: info?.zone?.name || "",
+      customerName: sess.customerName, startTime: sess.startTime, endTime: Date.now(),
+      duration: tot.elapsed, timePrice: tot.timePrice, orders: orders[itemId] || [],
+      ordersTotal: tot.ordersTotal, total: finalT, payMethod: "held",
+      debtAmount: 0, discount: discount || 0, graceMins: sess.graceMins || 0,
+      playerCount: sess.playerCount || 1, cashier: user?.name || "",
+      sessionType: sess.sessionType || "ps", invoiceNo,
+      status: keepOccupied ? "held-occupied" : "held-free",
+    };
+    setHistory((p) => [record, ...p]);
+    if (tenantId) addHistoryRecord(tenantId, branchId, record).catch(() => {});
+
+    if (!keepOccupied) {
+      // Free the room
+      if (tenantId) deleteSession(tenantId, itemId).catch(() => {});
+      setSessions((p) => { const n = { ...p }; delete n[itemId]; return n; });
+      setOrders((p) => { const n = { ...p }; delete n[itemId]; return n; });
+    }
+    notify(isRTL ? "تم تعليق الجلسة ⏸" : "Session held ⏸");
+    setView("main"); setSelItem(null);
+  };
+
+  // ── Edit / Delete history record (manager only, guarded in HistoryView UI) ──
+  const editHistoryRecord = (updated: HistoryRecord) => {
+    setHistory((p) => p.map((r) => r.id === updated.id ? updated : r));
+    if (tenantId) updateHistoryRecordDB(tenantId, updated).catch(() => {});
+  };
+
+  const deleteHistoryRecordLocal = (recordId: string) => {
+    setHistory((p) => p.filter((r) => r.id !== recordId));
+    if (tenantId) deleteHistoryRecordDB(tenantId, recordId).catch(() => {});
+  };
+
   // Role logout (back to role selection, stay authenticated with Supabase)
   const handleLogout = () => {
     setUser(null);
@@ -423,24 +478,62 @@ export default function CashierSystem() {
     if (!currentShift) return;
     const closeTime = Date.now();
     const recs = history.filter((h) => h.endTime >= currentShift.openedAt && h.endTime <= closeTime);
-    const totalRevenue = recs.reduce((s, h) => s + h.total, 0);
+    const paidRecs = recs.filter((h) => (h.status ?? "paid") === "paid");
+    const totalRevenue = paidRecs.reduce((s, h) => s + h.total, 0);
+    const cashRevenue = paidRecs.filter((h) => h.payMethod === "cash").reduce((s, h) => s + h.total, 0);
+    const cardRevenue = paidRecs.filter((h) => h.payMethod === "card").reduce((s, h) => s + h.total, 0);
+    const transferRevenue = paidRecs.filter((h) => h.payMethod === "transfer").reduce((s, h) => s + h.total, 0);
+    const debtTotal = paidRecs.reduce((s, h) => s + (h.debtAmount || 0), 0);
+    const discountTotal = paidRecs.reduce((s, h) => s + (h.discount || 0), 0);
+    const ordersRevenue = paidRecs.reduce((s, h) => s + (h.ordersTotal || 0), 0);
+    const timeRevenue = paidRecs.reduce((s, h) => s + (h.timePrice || 0), 0);
+    const heldRecs = recs.filter((h) => h.status === "held-occupied" || h.status === "held-free");
+    const heldCount = heldRecs.length;
+    const heldTotal = heldRecs.reduce((s, h) => s + h.total, 0);
+    // Zone breakdown
+    const byZone: Record<string, { count: number; rev: number }> = {};
+    for (const h of paidRecs) {
+      if (!byZone[h.zoneName]) byZone[h.zoneName] = { count: 0, rev: 0 };
+      byZone[h.zoneName].count++;
+      byZone[h.zoneName].rev += h.total;
+    }
+    // Item sales aggregate
+    const itemMap: Record<string, { name: string; icon: string; qty: number; rev: number }> = {};
+    for (const h of paidRecs) {
+      for (const o of (h.orders || [])) {
+        if (!itemMap[o.name]) itemMap[o.name] = { name: o.name, icon: o.icon || "", qty: 0, rev: 0 };
+        itemMap[o.name].qty++;
+        itemMap[o.name].rev += o.price || 0;
+      }
+    }
+    const itemSales = Object.values(itemMap).sort((a, b) => b.qty - a.qty);
+    const expectedCashInDrawer = currentShift.cashFloat + cashRevenue;
+
     const record: ShiftRecord = {
       ...currentShift,
       closedAt: closeTime,
       closedBy: user?.name || "",
       summary: {
-        sessionCount: recs.length,
+        sessionCount: paidRecs.length,
         totalRevenue,
-        cashRevenue: recs.filter((h) => h.payMethod === "cash").reduce((s, h) => s + h.total, 0),
-        cardRevenue: recs.filter((h) => h.payMethod === "card").reduce((s, h) => s + h.total, 0),
-        transferRevenue: recs.filter((h) => h.payMethod === "transfer").reduce((s, h) => s + h.total, 0),
-        debtTotal: recs.reduce((s, h) => s + (h.debtAmount || 0), 0),
-        discountTotal: recs.reduce((s, h) => s + (h.discount || 0), 0),
-        netRevenue: totalRevenue - recs.reduce((s, h) => s + (h.discount || 0), 0),
+        cashRevenue,
+        cardRevenue,
+        transferRevenue,
+        debtTotal,
+        discountTotal,
+        netRevenue: totalRevenue - discountTotal,
+        ordersRevenue,
+        timeRevenue,
+        heldCount,
+        heldTotal,
+        byZone,
+        itemSales,
+        expectedCashInDrawer,
       },
     };
     setShiftHistory((p) => [record, ...p.slice(0, 29)]);
     setCurrentShift(null);
+    setLastClosedShift(record);
     notify(t.shiftClosedMsg + " ✓");
   };
 
@@ -738,53 +831,37 @@ export default function CashierSystem() {
         {view === "detail" && selItem && (() => {
           const info = getInfo(selItem);
           if (!info) return null;
-          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} />;
+          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} />;
         })()}
 
         {view === "qr" && <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto"><QrOrdersPanel tenantId={tenantId} /></div>}
 
         {view === "history" && (
-          <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto">
-            <h2 className="text-xl font-bold mb-4" style={{ color: "var(--text)" }}>📋 {t.history}</h2>
-            {history.length === 0 ? <div className="text-center py-16" style={{ color: "var(--text2)", opacity: 0.3 }}>{t.noHistory}</div> : (
-              <div className="grid gap-3">
-                {history.slice(0, 100).map((h) => (
-                  <div key={h.id} className="card p-4 anim-fade">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1 min-w-0">
-                        <span className="font-bold" style={{ color: "var(--text)" }}>{h.itemName}</span>
-                        {h.sessionType === "match" && <span className="text-[10px] mx-1 font-semibold" style={{ color: "var(--green)" }}>⚽</span>}
-                        <span className="text-xs mx-2" style={{ color: "var(--text2)" }}>{h.customerName}</span>
-                        {(h.playerCount || 0) > 0 && <span className="text-[10px]" style={{ color: "var(--blue)" }}>👤{h.playerCount}</span>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold flex items-center gap-1" style={{ color: "var(--green)" }}>{fmtMoney(h.total)} <SarSymbol size={12} /></span>
-                        <button onClick={() => printSession({ invoiceNo: 0, itemName: h.itemName, zoneName: h.zoneName, customerName: h.customerName, sessionType: h.sessionType, startTime: h.startTime, endTime: h.endTime, duration: h.duration, orders: h.orders, timePrice: h.timePrice, ordersTotal: h.ordersTotal, discount: h.discount || 0, debtAmount: h.debtAmount || 0, total: h.total, payMethod: h.payMethod, cashier: h.cashier || "", playerCount: h.playerCount || 1, logo }, "thermal")}
-                          className="btn px-2 py-1 text-[10px]" style={{ color: "var(--text2)", borderColor: "var(--border)" }}>🖨️</button>
-                        <button onClick={() => printSession({ invoiceNo: 0, itemName: h.itemName, zoneName: h.zoneName, customerName: h.customerName, sessionType: h.sessionType, startTime: h.startTime, endTime: h.endTime, duration: h.duration, orders: h.orders, timePrice: h.timePrice, ordersTotal: h.ordersTotal, discount: h.discount || 0, debtAmount: h.debtAmount || 0, total: h.total, payMethod: h.payMethod, cashier: h.cashier || "", playerCount: h.playerCount || 1, logo }, "a4")}
-                          className="btn px-2 py-1 text-[10px]" style={{ color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 20%, transparent)" }}>📄</button>
-                      </div>
-                    </div>
-                    <div className="flex gap-3 mt-2 flex-wrap text-[11px]" style={{ color: "var(--text2)" }}>
-                      <span>⏱ {fmtD(h.duration)}</span>
-                      <span>🕐 {fmtTime(h.startTime)}–{fmtTime(h.endTime)}</span>
-                      <span>{h.payMethod === "cash" ? "💵" : h.payMethod === "card" ? "💳" : "📲"}</span>
-                      {h.cashier && <span>👤 {h.cashier}</span>}
-                      {(h.discount || 0) > 0 && <span style={{ color: "var(--blue)" }}>{t.discount}:{h.discount}</span>}
-                      {(h.debtAmount || 0) > 0 && <span style={{ color: "var(--red)" }}>{t.debt}:{h.debtAmount}</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <HistoryView
+            history={history}
+            settings={settings}
+            logo={logo}
+            isManager={isManager}
+            onEdit={editHistoryRecord}
+            onDelete={deleteHistoryRecordLocal}
+            onCompleteHeld={(record) => {
+              // Re-open payment flow: treat as a fresh endSession on the held record
+              // Simply edit the record's status to "paid"
+              const updated: HistoryRecord = { ...record, status: "paid" };
+              editHistoryRecord(updated);
+            }}
+            onClearHistory={isManager ? () => {
+              setHistory([]);
+              if (tenantId) clearHistory(tenantId).catch(() => {});
+            } : undefined}
+          />
         )}
 
-        {view === "shift" && <ShiftView currentShift={currentShift} shiftHistory={shiftHistory} history={history} onOpen={openShift} onClose={closeShift} user={user} settings={settings} isManager={isManager} now={now} />}
+        {view === "shift" && <ShiftView currentShift={currentShift} shiftHistory={shiftHistory} history={history} onOpen={openShift} onClose={closeShift} user={user} settings={settings} isManager={isManager} now={now} lastClosedShift={lastClosedShift} onDismissEod={() => setLastClosedShift(null)} logo={logo} />}
         {view === "debts" && <DebtsView debts={debts} setDebts={setDebts} role={user.role} notify={notify} settings={settings} logo={logo} />}
         {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} settings={settings} notify={notify} />}
         {view === "special-guests" && <SpecialGuestsView guests={specialGuests} setGuests={setSpecialGuests} currentUser={user.name} settings={settings} notify={notify} />}
-        {view === "stats" && <StatsView history={history} debts={debts} sessions={sessions} role={user.role} settings={settings} />}
+        {view === "stats" && <StatsView history={history} debts={debts} sessions={sessions} role={user.role} settings={settings} logo={logo} />}
         {view === "admin" && <AdminView floors={floors} setFloors={setFloors} menu={menu} setMenu={setMenu} pins={pins} setPins={setPins} roleNames={roleNames} setRoleNames={setRoleNames} role={user.role} notify={notify} onClearHistory={() => setHistory([])} onClearDebts={() => setDebts([])} settings={settings} setSettings={setSettings} logo={logo} setLogo={setLogo} tenantId={tenantId ?? ""} />}
       </main>
 

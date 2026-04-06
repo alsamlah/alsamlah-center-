@@ -15,16 +15,17 @@ interface ItemInfo { id: string; name: string; sub?: string; zone: Zone; floor: 
 interface Props {
   itemId: string; info: ItemInfo; session: Session | null; orders: OrderItem[]; menu: MenuItem[]; calc: CalcResult | null;
   onBack: () => void; onStartSession: (id: string, name: string, dur: number, pc: number, type?: "ps" | "match") => void;
-  onEndSession: (id: string, method: string, debt: number, disc: number) => void;
+  onEndSession: (id: string, method: string, debt: number, disc: number) => Promise<void> | void;
   onAddOrder: (id: string, item: MenuItem) => void; onRemoveOrder: (id: string, oid: string) => void;
   onAddGrace: (id: string, mins: number) => void; onUpdatePlayerCount: (id: string, c: number) => void;
   settings: SystemSettings;
   logo?: string | null;
-  getInvoiceNo?: () => Promise<number>;
+  getInvoiceNo?: () => Promise<string | number>;
   customers?: Customer[];
+  onHoldSession?: (id: string, discount: number, keepOccupied: boolean) => Promise<void> | void;
 }
 
-export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, settings, logo, getInvoiceNo, customers }: Props) {
+export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, settings, logo, getInvoiceNo, customers, onHoldSession }: Props) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuCat, setMenuCat] = useState("");
   const [selDur, setSelDur] = useState(30);
@@ -35,6 +36,8 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   const [sessionType, setSessionType] = useState<"ps" | "match">("ps");
   const [pendingPay, setPendingPay] = useState<{ method: string; debt: number; disc: number } | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showHold, setShowHold] = useState(false);
+  const [holdDisc, setHoldDisc] = useState("");
 
   const isRoomsZone = info.zone.id === MATCH_ZONE_ID;
   const isRoom10 = itemId === ROOM_10_ID;
@@ -317,7 +320,16 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
 
           {/* End Session */}
           <div className="card p-5">
-            <div className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>✋ {t.endSession}</div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-sm font-bold" style={{ color: "var(--text)" }}>✋ {t.endSession}</div>
+              {onHoldSession && (
+                <button onClick={() => setShowHold(true)}
+                  className="btn px-3 py-1.5 text-xs"
+                  style={{ color: "var(--yellow)", borderColor: "color-mix(in srgb, var(--yellow) 25%, transparent)", background: "color-mix(in srgb, var(--yellow) 8%, transparent)" }}>
+                  ⏸ {t.hold ?? "تعليق"}
+                </button>
+              )}
+            </div>
             <div className="flex gap-3 mb-4">
               <div className="flex-1">
                 <label className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--text2)" }}>{t.discount} (<SarSymbol size={11} />)</label>
@@ -347,6 +359,37 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Hold Modal ── */}
+      {showHold && onHoldSession && session && (
+        <div className="fixed inset-0 z-[500] flex items-end md:items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)" }}>
+          <div className="card p-6 w-full max-w-sm anim-fade-up">
+            <div className="text-base font-bold mb-1 text-center" style={{ color: "var(--text)" }}>⏸ {t.holdTitle ?? "تعليق الجلسة"}</div>
+            <div className="text-xs text-center mb-5" style={{ color: "var(--text2)" }}>{t.roomOccupied ?? "الغرفة مشغولة أو شاغلة؟"}</div>
+            <div className="mb-4">
+              <label className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--text2)" }}>{t.discount ?? "خصم"} (<SarSymbol size={11} />)</label>
+              <input type="number" value={holdDisc} onChange={(e) => setHoldDisc(e.target.value)} placeholder="0" className="input" />
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <button
+                onClick={() => { onHoldSession(itemId, Number(holdDisc) || 0, true); setShowHold(false); setHoldDisc(""); }}
+                className="btn py-3 text-sm"
+                style={{ background: "color-mix(in srgb, var(--yellow) 12%, transparent)", color: "var(--yellow)", borderColor: "color-mix(in srgb, var(--yellow) 25%, transparent)" }}>
+                🔒 {t.holdKeepOccupied ?? "تبقى مشغولة"}
+              </button>
+              <button
+                onClick={() => { onHoldSession(itemId, Number(holdDisc) || 0, false); setShowHold(false); setHoldDisc(""); }}
+                className="btn py-3 text-sm"
+                style={{ background: "color-mix(in srgb, var(--green) 10%, transparent)", color: "var(--green)", borderColor: "color-mix(in srgb, var(--green) 25%, transparent)" }}>
+                🔓 {t.holdFreeRoom ?? "تحرير الغرفة"}
+              </button>
+            </div>
+            <button onClick={() => { setShowHold(false); setHoldDisc(""); }}
+              className="btn w-full py-2 text-sm btn-ghost">{t.cancel}</button>
           </div>
         </div>
       )}

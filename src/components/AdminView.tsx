@@ -379,6 +379,28 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
             </div>
           </div>
 
+          {/* End of Day Hour */}
+          <div className="card p-5 mb-4">
+            <label className="text-xs font-semibold mb-1 block" style={{ color: "var(--text2)" }}>🕐 {t.endOfDayHour}</label>
+            <p className="text-[11px] mb-3" style={{ color: "var(--text2)", opacity: 0.6 }}>
+              {t.endOfDayHourNote}
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min="0"
+                max="11"
+                value={settings.endOfDayHour ?? 5}
+                onChange={(e) => setSettings((s) => ({ ...s, endOfDayHour: Math.max(0, Math.min(11, Number(e.target.value) || 5)) }))}
+                className="input w-24"
+                dir="ltr"
+              />
+              <span className="text-sm" style={{ color: "var(--text2)" }}>
+                {isRTL ? "صباحاً (0–11)" : "AM (0–11)"}
+              </span>
+            </div>
+          </div>
+
           {/* Font Size */}
           <div className="card p-5">
             <label className="text-xs font-semibold mb-3 block" style={{ color: "var(--text2)" }}>{t.fontSize}</label>

@@ -108,6 +108,8 @@ export interface HistoryRecord {
   playerCount: number;
   cashier: string;
   sessionType?: "ps" | "match";
+  invoiceNo?: string;                                    // zero-padded "0001", resets daily
+  status?: "paid" | "held-occupied" | "held-free";      // undefined = "paid" (backward compat)
 }
 
 export interface DebtPayment {
@@ -165,6 +167,14 @@ export interface ShiftRecord extends Shift {
     debtTotal: number;
     discountTotal: number;
     netRevenue: number;
+    // Extended fields (added for day management — may be absent in old records)
+    ordersRevenue?: number;
+    timeRevenue?: number;
+    heldCount?: number;
+    heldTotal?: number;
+    byZone?: Record<string, { count: number; rev: number }>;
+    itemSales?: { name: string; icon: string; qty: number; rev: number }[];
+    expectedCashInDrawer?: number;
   };
 }
 

@@ -4,7 +4,8 @@ import { useState } from "react";
 import type { Shift, ShiftRecord, HistoryRecord, UserLogin } from "@/lib/supabase";
 import type { SystemSettings } from "@/lib/settings";
 import { T } from "@/lib/settings";
-import { fmtMoney, fmtD, fmtTime, fmtDate } from "@/lib/utils";
+import { fmtMoney, fmtD, fmtTime, fmtDate, getBusinessDay } from "@/lib/utils";
+import { printShiftReport } from "@/lib/printReceipt";
 import SarSymbol from "./SarSymbol";
 
 interface Props {
@@ -17,9 +18,12 @@ interface Props {
   settings: SystemSettings;
   isManager: boolean;
   now: number;
+  lastClosedShift?: ShiftRecord | null;
+  onDismissEod?: () => void;
+  logo?: string | null;
 }
 
-export default function ShiftView({ currentShift, shiftHistory, history, onOpen, onClose, user, settings, isManager, now }: Props) {
+export default function ShiftView({ currentShift, shiftHistory, history, onOpen, onClose, user, settings, isManager, now, lastClosedShift, onDismissEod, logo }: Props) {
   const t = T[settings.lang];
   const isRTL = settings.lang === "ar";
 
@@ -167,17 +171,198 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
         ) : (
           <div className="flex flex-col gap-3">
             {shiftHistory.slice(0, 20).map((s) => (
-              <ShiftCard key={s.id} shift={s} t={t} isRTL={isRTL} />
+              <ShiftCard key={s.id} shift={s} t={t} isRTL={isRTL} logo={logo} eodHour={settings.endOfDayHour ?? 5} />
             ))}
           </div>
         )}
+      </div>
+
+      {/* ── End-of-Day Report Modal ── */}
+      {lastClosedShift && (
+        <EodReportModal shift={lastClosedShift} settings={settings} logo={logo} onDismiss={() => onDismissEod?.()} />
+      )}
+    </div>
+  );
+}
+
+// ── End-of-Day Report Modal ────────────────────────────────────────────────────
+
+function EodReportModal({ shift, settings, logo, onDismiss }: {
+  shift: ShiftRecord;
+  settings: SystemSettings;
+  logo?: string | null;
+  onDismiss: () => void;
+}) {
+  const t = T[settings.lang];
+  const isRTL = settings.lang === "ar";
+  const s = shift.summary;
+  const businessDate = getBusinessDay(shift.closedAt, settings.endOfDayHour ?? 5);
+
+  const handlePrint = () => {
+    printShiftReport({
+      businessDate,
+      openedAt: shift.openedAt,
+      closedAt: shift.closedAt,
+      openedBy: shift.openedBy,
+      closedBy: shift.closedBy,
+      cashFloat: shift.cashFloat,
+      sessionCount: s.sessionCount,
+      totalRevenue: s.totalRevenue,
+      cashRevenue: s.cashRevenue,
+      cardRevenue: s.cardRevenue,
+      transferRevenue: s.transferRevenue,
+      debtTotal: s.debtTotal,
+      discountTotal: s.discountTotal,
+      netRevenue: s.netRevenue,
+      ordersRevenue: s.ordersRevenue ?? 0,
+      timeRevenue: s.timeRevenue ?? 0,
+      heldCount: s.heldCount ?? 0,
+      heldTotal: s.heldTotal ?? 0,
+      expectedCashInDrawer: s.expectedCashInDrawer ?? shift.cashFloat,
+      byZone: s.byZone ?? {},
+      itemSales: s.itemSales ?? [],
+      logo,
+    }, "a4");
+  };
+
+  return (
+    <div className="fixed inset-0 z-[700] flex items-end md:items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)" }}
+      dir={isRTL ? "rtl" : "ltr"}>
+      <div className="card w-full max-w-lg anim-fade-up overflow-y-auto"
+        style={{ maxHeight: "90vh" }}>
+        {/* Header */}
+        <div className="p-5 border-b" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-lg font-black" style={{ color: "var(--accent)" }}>
+                📊 {t.endOfDay ?? "تقرير نهاية اليوم"}
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--text2)" }}>
+                {businessDate} • {fmtTime(shift.openedAt)} — {fmtTime(shift.closedAt)}
+              </div>
+            </div>
+            <button onClick={onDismiss}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-lg"
+              style={{ background: "var(--input-bg)", color: "var(--text2)" }}>✕</button>
+          </div>
+        </div>
+
+        <div className="p-5 flex flex-col gap-4">
+          {/* Cash reconciliation */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="card p-3">
+              <div className="text-[10px]" style={{ color: "var(--text2)" }}>{t.openingBalance ?? "رصيد الافتتاح"}</div>
+              <div className="font-bold text-base flex items-center gap-1 mt-0.5">
+                {fmtMoney(shift.cashFloat)} <SarSymbol size={12} />
+              </div>
+            </div>
+            <div className="card p-3" style={{ borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)", background: "color-mix(in srgb, var(--accent) 5%, var(--surface))" }}>
+              <div className="text-[10px]" style={{ color: "var(--text2)" }}>{t.expectedDrawer ?? "المتوقع في الصندوق"}</div>
+              <div className="font-bold text-base flex items-center gap-1 mt-0.5" style={{ color: "var(--accent)" }}>
+                {fmtMoney(s.expectedCashInDrawer ?? shift.cashFloat)} <SarSymbol size={12} />
+              </div>
+            </div>
+          </div>
+
+          {/* Revenue summary */}
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: isRTL ? "إجمالي الإيراد" : "Total Revenue", val: s.totalRevenue, color: "var(--text)" },
+              { label: isRTL ? "صافي الإيراد" : "Net Revenue", val: s.netRevenue, color: "var(--green)" },
+              { label: isRTL ? "إيراد الوقت" : "Time Revenue", val: s.timeRevenue ?? 0, color: "var(--text)" },
+              { label: isRTL ? "إيراد الطلبات" : "Orders Revenue", val: s.ordersRevenue ?? 0, color: "var(--text)" },
+              { label: isRTL ? "الخصومات" : "Discounts", val: s.discountTotal, color: "var(--red)" },
+              { label: isRTL ? "الديون" : "Debts", val: s.debtTotal, color: "var(--red)" },
+            ].map(({ label, val, color }) => (
+              <div key={label} className="flex justify-between items-center px-3 py-2 rounded-lg text-xs"
+                style={{ background: "var(--input-bg)" }}>
+                <span style={{ color: "var(--text2)" }}>{label}</span>
+                <span className="font-bold flex items-center gap-0.5" style={{ color }}>{fmtMoney(val)} <SarSymbol size={10} /></span>
+              </div>
+            ))}
+          </div>
+
+          {/* Payment methods */}
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            {[
+              { label: "💵 " + t.cashRev, val: s.cashRevenue },
+              { label: "💳 " + t.cardRev, val: s.cardRevenue },
+              { label: "📲 " + t.transferRev, val: s.transferRevenue },
+            ].map(({ label, val }) => (
+              <div key={label} className="card p-2.5 text-center">
+                <div style={{ color: "var(--text2)" }}>{label}</div>
+                <div className="font-bold text-sm flex items-center justify-center gap-0.5 mt-0.5">
+                  {fmtMoney(val)} <SarSymbol size={10} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Shift info */}
+          <div className="text-xs flex gap-4 flex-wrap" style={{ color: "var(--text2)" }}>
+            <span>👤 {s.sessionCount} {isRTL ? "جلسة" : "sessions"}</span>
+            <span>⏸ {s.heldCount ?? 0} {isRTL ? "معلق" : "held"}</span>
+            <span>⏱ {fmtD(shift.closedAt - shift.openedAt)}</span>
+          </div>
+
+          {/* Zone breakdown */}
+          {s.byZone && Object.keys(s.byZone).length > 0 && (
+            <div>
+              <div className="text-xs font-bold mb-2" style={{ color: "var(--text2)" }}>{t.byZone}</div>
+              <div className="flex flex-col gap-1">
+                {Object.entries(s.byZone).map(([zone, { count, rev }]) => (
+                  <div key={zone} className="flex justify-between items-center px-3 py-1.5 rounded-lg text-xs"
+                    style={{ background: "var(--input-bg)" }}>
+                    <span style={{ color: "var(--text)" }}>{zone} <span style={{ color: "var(--text2)" }}>({count})</span></span>
+                    <span className="font-bold flex items-center gap-0.5">{fmtMoney(rev)} <SarSymbol size={10} /></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Top items */}
+          {s.itemSales && s.itemSales.length > 0 && (
+            <div>
+              <div className="text-xs font-bold mb-2" style={{ color: "var(--text2)" }}>
+                {t.itemSales ?? "مبيعات الأصناف"} ({isRTL ? "أعلى ٥" : "Top 5"})
+              </div>
+              <div className="flex flex-col gap-1">
+                {s.itemSales.slice(0, 5).map((item) => (
+                  <div key={item.name} className="flex justify-between items-center px-3 py-1.5 rounded-lg text-xs"
+                    style={{ background: "var(--input-bg)" }}>
+                    <span>{item.icon} {item.name}</span>
+                    <span className="flex items-center gap-2">
+                      <span style={{ color: "var(--text2)" }}>×{item.qty}</span>
+                      <span className="font-bold flex items-center gap-0.5">{fmtMoney(item.rev)} <SarSymbol size={10} /></span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer buttons */}
+        <div className="p-5 pt-0 flex gap-3">
+          <button onClick={handlePrint}
+            className="btn flex-1 py-3 font-bold text-sm"
+            style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)" }}>
+            🖨️ {t.printReport ?? "طباعة التقرير"}
+          </button>
+          <button onClick={onDismiss}
+            className="btn flex-1 py-3 text-sm btn-ghost">
+            {t.done}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 // ── Collapsed shift history card ──
-function ShiftCard({ shift, t, isRTL }: { shift: ShiftRecord; t: Record<string, string>; isRTL: boolean }) {
+function ShiftCard({ shift, t, isRTL, logo, eodHour }: { shift: ShiftRecord; t: Record<string, string>; isRTL: boolean; logo?: string | null; eodHour: number }) {
   const [open, setOpen] = useState(false);
   const dur = shift.closedAt - shift.openedAt;
 

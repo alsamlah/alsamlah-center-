@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { HistoryRecord, Debt, Session, UserRole } from "@/lib/supabase";
 import type { SystemSettings } from "@/lib/settings";
 import { T } from "@/lib/settings";
-import { fmtMoney, fmtD, fmtDate, isSameDay, isThisWeek, isThisMonth } from "@/lib/utils";
+import { fmtMoney, fmtD, getBusinessDay } from "@/lib/utils";
+import { printStatsReport } from "@/lib/printReceipt";
 import SarSymbol from "./SarSymbol";
 
 interface Props {
@@ -13,23 +14,34 @@ interface Props {
   sessions: Record<string, Session>;
   role: UserRole;
   settings: SystemSettings;
+  logo?: string | null;
 }
 
 type Period = "today" | "week" | "month" | "all";
+type SubTab = "overview" | "items";
 
-export default function StatsView({ history, debts, sessions, role, settings }: Props) {
+export default function StatsView({ history, debts, sessions, role, settings, logo }: Props) {
   const [period, setPeriod] = useState<Period>("today");
+  const [subTab, setSubTab] = useState<SubTab>("overview");
   const now = Date.now();
+  const eodHour = settings.endOfDayHour ?? 5;
 
   const t = T[settings.lang];
+  const isRTL = settings.lang === "ar";
   const isManager = role === "manager";
 
-  const filtered = history.filter((h) => {
-    if (period === "today") return isSameDay(h.endTime, now);
-    if (period === "week") return isThisWeek(h.endTime);
-    if (period === "month") return isThisMonth(h.endTime);
+  const filtered = useMemo(() => history.filter((h) => {
+    const bDay = getBusinessDay(h.endTime, eodHour);
+    const today = getBusinessDay(now, eodHour);
+    if (period === "today") return bDay === today;
+    if (period === "week") return h.endTime >= now - 7 * 24 * 3600 * 1000;
+    if (period === "month") {
+      const d = new Date(h.endTime); const n = new Date();
+      return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
+    }
     return true;
-  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [history, period, eodHour]);
 
   const totalRev = filtered.reduce((s, h) => s + h.total, 0);
   const totalSessions = filtered.length;
@@ -77,18 +89,59 @@ export default function StatsView({ history, debts, sessions, role, settings }: 
   const ordersRev = filtered.reduce((s, h) => s + h.ordersTotal, 0);
   const timeRev = filtered.reduce((s, h) => s + h.timePrice, 0);
 
+  // Item sales aggregate
+  const itemMap: Record<string, { name: string; icon: string; qty: number; rev: number }> = {};
+  for (const h of filtered) {
+    for (const o of (h.orders || [])) {
+      if (!itemMap[o.name]) itemMap[o.name] = { name: o.name, icon: o.icon || "", qty: 0, rev: 0 };
+      itemMap[o.name].qty++;
+      itemMap[o.name].rev += o.price || 0;
+    }
+  }
+  const itemSales = Object.values(itemMap).sort((a, b) => b.qty - a.qty);
+
+  // Period label for print
+  const periodLabel = period === "today" ? t.today : period === "week" ? t.week : period === "month" ? t.month : t.all;
+
   // Debts summary
   const unpaidDebts = debts.filter((d) => !d.paid);
   const totalUnpaidDebt = unpaidDebts.reduce((s, d) => s + (d.amount - d.paidAmount), 0);
 
   const periodLabels: Record<Period, string> = { today: t.today, week: t.week, month: t.month, all: t.all };
 
+  const handlePrintReport = () => {
+    printStatsReport({
+      dateLabel: periodLabel,
+      sessionCount: totalSessions,
+      totalRevenue: totalRev,
+      cashRevenue: byCash,
+      cardRevenue: byCard,
+      transferRevenue: byTransfer,
+      debtTotal: totalDebtAmt,
+      discountTotal: totalDiscount,
+      netRevenue: totalRev - totalDiscount,
+      ordersRevenue: ordersRev,
+      timeRevenue: timeRev,
+      byZone,
+      itemSales,
+      logo,
+    }, "a4");
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto">
-      <h2 className="text-xl font-bold mb-5" style={{ color: "var(--text)" }}>📊 {t.reports}</h2>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
+        <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>📊 {t.reports}</h2>
+        <button onClick={handlePrintReport}
+          className="btn px-3 py-1.5 text-xs"
+          style={{ color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 20%, transparent)" }}>
+          🖨️ {t.printReport ?? "طباعة التقرير"}
+        </button>
+      </div>
 
       {/* Period Filter */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-4">
         {(["today", "week", "month", "all"] as Period[]).map((p) => (
           <button key={p} onClick={() => setPeriod(p)}
             className="btn flex-1 py-2.5 text-xs"
@@ -97,10 +150,66 @@ export default function StatsView({ history, debts, sessions, role, settings }: 
               color: period === p ? "var(--accent)" : "var(--text2)",
               borderColor: period === p ? "color-mix(in srgb, var(--accent) 25%, transparent)" : "var(--border)",
             }}>
-            {periodLabels[p]}
+            {p === "today" ? t.today : p === "week" ? t.week : p === "month" ? t.month : t.all}
           </button>
         ))}
       </div>
+
+      {/* Sub-tab row */}
+      <div className="flex gap-2 mb-5">
+        {(["overview", "items"] as SubTab[]).map((st) => (
+          <button key={st} onClick={() => setSubTab(st)}
+            className="btn px-4 py-2 text-xs"
+            style={subTab === st ? {
+              background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+              color: "var(--accent)",
+              borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)",
+            } : { color: "var(--text2)" }}>
+            {st === "overview" ? (t.overview ?? (isRTL ? "نظرة عامة" : "Overview")) : (t.itemSales ?? (isRTL ? "مبيعات الأصناف" : "Item Sales"))}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "items" ? (
+        /* ── Items Tab ── */
+        <div>
+          {itemSales.length === 0 ? (
+            <div className="text-center py-16" style={{ color: "var(--text2)", opacity: 0.3 }}>
+              {isRTL ? "لا توجد مبيعات" : "No item sales"}
+            </div>
+          ) : (
+            <div className="card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm font-bold" style={{ color: "var(--text)" }}>
+                  ☕ {t.itemSales ?? "مبيعات الأصناف"} ({itemSales.length})
+                </div>
+                <span className="text-xs" style={{ color: "var(--text2)" }}>
+                  {t.qty ?? "الكمية"} / {isRTL ? "الإيراد" : "Revenue"}
+                </span>
+              </div>
+              <div className="grid gap-2">
+                {itemSales.map((item, i) => (
+                  <div key={item.name} className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs"
+                    style={{ background: i % 2 === 0 ? "var(--input-bg)" : "transparent" }}>
+                    <span className="w-6 text-center font-bold" style={{ color: "var(--text2)", opacity: 0.5 }}>{i + 1}</span>
+                    <span className="text-base">{item.icon}</span>
+                    <span className="flex-1 font-semibold" style={{ color: "var(--text)" }}>{item.name}</span>
+                    <span className="font-bold px-2 py-0.5 rounded"
+                      style={{ background: "color-mix(in srgb, var(--blue) 10%, transparent)", color: "var(--blue)" }}>
+                      ×{item.qty}
+                    </span>
+                    <span className="font-bold flex items-center gap-0.5" style={{ color: "var(--green)" }}>
+                      {fmtMoney(item.rev)} <SarSymbol size={10} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ── Overview Tab ── */
+        <div>
 
       {/* Quick Stats */}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
@@ -212,6 +321,8 @@ export default function StatsView({ history, debts, sessions, role, settings }: 
           <div className="flex justify-between text-xs"><span style={{ color: "var(--red)" }}>{t.totalDebt}</span><span className="font-bold" style={{ color: "var(--red)" }}>{fmtMoney(totalUnpaidDebt)} <SarSymbol /></span></div>
         </div>
       </div>
+        </div>
+      )}
     </div>
   );
 }
