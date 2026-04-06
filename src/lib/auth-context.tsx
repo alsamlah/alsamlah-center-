@@ -92,7 +92,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCtxLoading(false);
       }
       setSupabaseReady(true);
+    }).catch(() => {
+      setSupabaseReady(true);
     });
+
+    // Fallback: if Supabase is unreachable, show auth screen after 5s
+    const fallback = setTimeout(() => setSupabaseReady(true), 5000);
+    return () => clearTimeout(fallback);
 
     // Listen for auth changes (login, logout, OAuth callback)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
