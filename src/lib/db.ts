@@ -10,7 +10,7 @@
 import { supabase } from "@/lib/supabase";
 import type {
   Floor, MenuItem, Session, OrderItem,
-  HistoryRecord, Debt, Tenant, Branch, SpecialGuest,
+  HistoryRecord, Debt, Tenant, Branch, SpecialGuest, Customer,
 } from "@/lib/supabase";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES } from "@/lib/defaults";
 import type { SystemSettings } from "@/lib/settings";
@@ -26,6 +26,7 @@ export interface TenantData {
   orders: Record<string, OrderItem[]>;
   history: HistoryRecord[];
   debts: Debt[];
+  customers: Customer[];
   pins: Record<UserRole, string>;
   roleNames: Record<UserRole, string>;
   settings: SystemSettings;
@@ -64,6 +65,7 @@ export async function loadTenantData(
     debtsRes,
     settingsRes,
     counterRes,
+    customersRes,
   ] = await Promise.allSettled([
     supabase.from("floors").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("menu_items").select("*").eq("tenant_id", tenantId).limit(1).single(),
@@ -72,6 +74,7 @@ export async function loadTenantData(
     supabase.from("debts").select("*").eq("tenant_id", tenantId),
     supabase.from("tenant_settings").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("invoice_counter").select("*").eq("tenant_id", tenantId).limit(1).single(),
+    supabase.from("customers").select("*").eq("tenant_id", tenantId).limit(1).single(),
   ]);
 
   // ── Floors ──
@@ -118,6 +121,10 @@ export async function loadTenantData(
     ? settingsRow.settings as SystemSettings
     : parse(ls("als-settings"), DEFAULT_SETTINGS);
 
+  // ── Customers ──
+  const customersRow = customersRes.status === "fulfilled" ? customersRes.value.data : null;
+  const customers: Customer[] = customersRow?.data ?? parse(ls("als-customers"), []);
+
   // ── Logo (still stored in tenant row, base64 from localStorage or tenant.logo_url) ──
   const logo: string | null = ls("als-logo");
 
@@ -132,12 +139,13 @@ export async function loadTenantData(
   lsSet("als-orders", orders);
   lsSet("als-history", history);
   lsSet("als-debts", debts);
+  lsSet("als-customers", customers);
   lsSet("als-pins", pins);
   lsSet("als-role-names", roleNames);
   lsSet("als-settings", settings);
   lsSet("als-invoice-counter", String(invoiceCounter));
 
-  return { floors, menu, sessions, orders, history, debts, pins, roleNames, settings, logo, invoiceCounter };
+  return { floors, menu, sessions, orders, history, debts, customers, pins, roleNames, settings, logo, invoiceCounter };
 }
 
 // ── Tenant & Business Profile ─────────────────────────────────────────────────
@@ -360,4 +368,27 @@ export function subscribeToSpecialGuests(tenantId: string, cb: RealtimeCallback)
       filter: `tenant_id=eq.${tenantId}`,
     }, (payload) => cb(payload as Record<string, unknown>))
     .subscribe();
+}
+
+// ── Customers (Loyalty) ───────────────────────────────────────────────────────
+
+export async function loadCustomers(tenantId: string): Promise<Customer[]> {
+  const { data, error } = await supabase
+    .from("customers")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .limit(1)
+    .single();
+  if (error || !data) return parse(ls("als-customers"), []);
+  const customers = (data.data as Customer[]) ?? [];
+  lsSet("als-customers", customers);
+  return customers;
+}
+
+export async function syncCustomers(tenantId: string, branchId: string | null, customers: Customer[]) {
+  lsSet("als-customers", customers);
+  await supabase.from("customers").upsert(
+    { tenant_id: tenantId, branch_id: branchId, data: customers, updated_at: new Date().toISOString() },
+    { onConflict: "tenant_id" }
+  );
 }

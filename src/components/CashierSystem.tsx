@@ -13,6 +13,7 @@ import {
   addHistoryRecord, syncDebts, syncSettings, getAndIncrementInvoice, clearHistory,
   loadDebts, subscribeToSessions, subscribeToHistory, subscribeToDebts,
   syncSpecialGuests, loadSpecialGuests, subscribeToSpecialGuests,
+  syncCustomers,
 } from "@/lib/db";
 import AuthScreen from "./AuthScreen";
 import RoleSelectScreen from "./RoleSelectScreen";
@@ -137,6 +138,7 @@ export default function CashierSystem() {
       setOrders(data.orders);
       setHistory(data.history);
       setDebts(data.debts);
+      setCustomers(data.customers);
       setPins(data.pins);
       setRoleNames(data.roleNames);
       setSettings(data.settings);
@@ -203,6 +205,12 @@ export default function CashierSystem() {
     syncSpecialGuests(tenantId, specialGuests).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [specialGuests, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || dbLoading) return;
+    syncCustomers(tenantId, branchId, customers).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customers, tenantId]);
 
   // ── Realtime: multi-device sync ──────────────────────────────────────────────
   useEffect(() => {

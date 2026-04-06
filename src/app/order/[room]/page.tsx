@@ -18,8 +18,10 @@ function OrderPageInner() {
   const params = useParams();
   const searchParams = useSearchParams();
   const roomId = params.room as string;
-  const roomName = decodeURIComponent(roomId).replace(/-/g, " ");
   const tenantId = searchParams.get("t");
+  const roomName = searchParams.get("name")
+    ? decodeURIComponent(searchParams.get("name")!)
+    : decodeURIComponent(roomId).replace(/-/g, " ");
 
   const [menu, setMenu] = useState<MenuItem[]>(DEFAULT_MENU);
   const [cat, setCat] = useState("مشروبات");

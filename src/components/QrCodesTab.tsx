@@ -94,7 +94,7 @@ export default function QrCodesTab({ floors, tenantId }: Props) {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {zone.items.map((item) => {
-                  const qrUrl = origin ? `${origin}/order/${item.id}?t=${tenantId}` : "";
+                  const qrUrl = origin ? `${origin}/order/${item.id}?t=${tenantId}&name=${encodeURIComponent(item.name)}` : "";
                   return (
                     <div key={item.id} className="card p-4 flex flex-col items-center gap-3 text-center">
                       {/* Hidden canvas for print data URL extraction */}
