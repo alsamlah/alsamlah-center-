@@ -110,6 +110,8 @@ export interface HistoryRecord {
   sessionType?: "ps" | "match";
   invoiceNo?: string;                                    // zero-padded "0001", resets daily
   status?: "paid" | "held-occupied" | "held-free";      // undefined = "paid" (backward compat)
+  branchId?: string;                                     // branch that created this record (optional for multi-branch filter)
+  branchName?: string;
 }
 
 export interface DebtPayment {

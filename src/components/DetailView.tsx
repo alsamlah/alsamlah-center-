@@ -15,7 +15,7 @@ interface ItemInfo { id: string; name: string; sub?: string; zone: Zone; floor: 
 interface Props {
   itemId: string; info: ItemInfo; session: Session | null; orders: OrderItem[]; menu: MenuItem[]; calc: CalcResult | null;
   onBack: () => void; onStartSession: (id: string, name: string, dur: number, pc: number, type?: "ps" | "match") => void;
-  onEndSession: (id: string, method: string, debt: number, disc: number) => Promise<void> | void;
+  onEndSession: (id: string, method: string, debt: number, disc: number) => Promise<string | void> | void;
   onAddOrder: (id: string, item: MenuItem) => void; onRemoveOrder: (id: string, oid: string) => void;
   onAddGrace: (id: string, mins: number) => void; onUpdatePlayerCount: (id: string, c: number) => void;
   settings: SystemSettings;
@@ -447,13 +447,19 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
               ))}
             </div>
             <button
-              onClick={() => {
+              onClick={async () => {
                 const endTime = Date.now();
                 const sarUnit = isRTL ? "ر.س" : "SAR";
                 const cashDue = Math.max(0, calc.total - pendingPay.disc - pendingPay.debt);
                 const payLabel = isRTL
                   ? (pendingPay.method === "cash" ? "كاش" : pendingPay.method === "card" ? "شبكة" : "تحويل")
                   : pendingPay.method;
+                // End session first to get the record ID for receipt URL
+                const recordId = await onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc);
+                setPendingPay(null);
+                const receiptUrl = recordId
+                  ? `${window.location.origin}/receipt/${recordId}`
+                  : null;
                 const lines = [
                   isRTL ? "🧾 مركز الصملة للترفيه" : "🧾 ALSAMLAH Entertainment Center",
                   `📍 ${info.name} — ${info.zone.name}`,
@@ -467,10 +473,9 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                   ...(pendingPay.debt > 0 ? [`📝 ${t.debt}: ${fmtMoney(pendingPay.debt)} ${sarUnit}`] : []),
                   `✅ ${t.total}: ${fmtMoney(cashDue)} ${sarUnit}`,
                   `💳 ${isRTL ? "الدفع" : "Payment"}: ${payLabel}`,
+                  ...(receiptUrl ? ["", `🧾 ${isRTL ? "الإيصال" : "Receipt"}: ${receiptUrl}`] : []),
                 ].filter(Boolean).join("\n");
                 window.open(`https://wa.me/?text=${encodeURIComponent(lines)}`, "_blank");
-                onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc);
-                setPendingPay(null);
               }}
               className="btn w-full py-3 text-sm mt-3"
               style={{ background: "color-mix(in srgb, var(--green) 10%, transparent)", color: "var(--green)", borderColor: "color-mix(in srgb, var(--green) 25%, transparent)" }}>

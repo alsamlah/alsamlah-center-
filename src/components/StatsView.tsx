@@ -15,14 +15,17 @@ interface Props {
   role: UserRole;
   settings: SystemSettings;
   logo?: string | null;
+  currentBranchId?: string | null;
+  currentBranchName?: string | null;
 }
 
 type Period = "today" | "week" | "month" | "all";
 type SubTab = "overview" | "items";
 
-export default function StatsView({ history, debts, sessions, role, settings, logo }: Props) {
+export default function StatsView({ history, debts, sessions, role, settings, logo, currentBranchId, currentBranchName }: Props) {
   const [period, setPeriod] = useState<Period>("today");
   const [subTab, setSubTab] = useState<SubTab>("overview");
+  const [allBranches, setAllBranches] = useState(false);
   const now = Date.now();
   const eodHour = settings.endOfDayHour ?? 5;
 
@@ -30,7 +33,18 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
   const isRTL = settings.lang === "ar";
   const isManager = role === "manager";
 
-  const filtered = useMemo(() => history.filter((h) => {
+  // Detect multi-branch: does history contain records from >1 branch?
+  const hasBranches = isManager && currentBranchId && history.some(
+    (h) => h.branchId && h.branchId !== currentBranchId
+  );
+
+  // Branch-scoped history: when "this branch", filter records by branchId
+  // Legacy records (no branchId) always appear in "this branch" view
+  const branchFiltered = allBranches
+    ? history
+    : history.filter((h) => !h.branchId || h.branchId === currentBranchId);
+
+  const filtered = useMemo(() => branchFiltered.filter((h) => {
     const bDay = getBusinessDay(h.endTime, eodHour);
     const today = getBusinessDay(now, eodHour);
     if (period === "today") return bDay === today;
@@ -41,7 +55,7 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
     }
     return true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [history, period, eodHour]);
+  }), [branchFiltered, period, eodHour]);
 
   const totalRev = filtered.reduce((s, h) => s + h.total, 0);
   const totalSessions = filtered.length;
@@ -132,7 +146,33 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
     <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
-        <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>📊 {t.reports}</h2>
+        <div>
+          <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>📊 {t.reports}</h2>
+          {hasBranches && (
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <button
+                onClick={() => setAllBranches(false)}
+                className="btn text-[11px] py-1 px-2.5"
+                style={!allBranches ? {
+                  background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+                  color: "var(--accent)",
+                  borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)",
+                } : { color: "var(--text2)" }}>
+                🏠 {currentBranchName ?? (isRTL ? "هذا الفرع" : "This Branch")}
+              </button>
+              <button
+                onClick={() => setAllBranches(true)}
+                className="btn text-[11px] py-1 px-2.5"
+                style={allBranches ? {
+                  background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+                  color: "var(--accent)",
+                  borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)",
+                } : { color: "var(--text2)" }}>
+                🌐 {isRTL ? "جميع الفروع" : "All Branches"}
+              </button>
+            </div>
+          )}
+        </div>
         <button onClick={handlePrintReport}
           className="btn px-3 py-1.5 text-xs"
           style={{ color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 20%, transparent)" }}>

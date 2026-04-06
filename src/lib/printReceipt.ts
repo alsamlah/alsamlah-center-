@@ -108,20 +108,28 @@ const invNo = (n: string | number | undefined) =>
   n != null ? `#${String(n).padStart(4, "0")}` : "----";
 
 // ── Open print window ──
+// Uses Blob URL so the popup loads as a real page (better for fonts/images),
+// then auto-prints on the window's "load" event (no fixed-delay guessing).
 
 function openAndPrint(html: string, type: PrintType) {
-  const dims = type === "thermal" ? "width=360,height=800" : "width=900,height=1200";
-  const win = window.open("", "_blank", dims);
+  const dims = type === "thermal" ? "width=380,height=800" : "width=960,height=1200";
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, "_blank", dims);
   if (!win) {
+    URL.revokeObjectURL(url);
     alert("السماح بفتح النوافذ مطلوب للطباعة\nPlease allow popups for printing.");
     return;
   }
-  win.document.write(html);
-  win.document.close();
   win.focus();
-  setTimeout(() => {
-    try { win.print(); } catch (_) {}
-  }, 700);
+  // Wait for full page load (fonts + images) before printing
+  win.addEventListener("load", () => {
+    setTimeout(() => {
+      try { win.print(); } catch (_) {}
+      // Revoke after a delay so the page stays available if user hits print again
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }, 250);
+  });
 }
 
 // ══════════════════════════════════════════

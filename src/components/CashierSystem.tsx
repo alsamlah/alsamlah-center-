@@ -369,8 +369,8 @@ export default function CashierSystem() {
     });
   };
 
-  const endSession = async (itemId: string, payMethod: string, debtAmt: number, discount: number) => {
-    const sess = sessions[itemId]; if (!sess) return;
+  const endSession = async (itemId: string, payMethod: string, debtAmt: number, discount: number): Promise<string> => {
+    const sess = sessions[itemId]; if (!sess) return "";
     const tot = calcTotal(itemId), info = getInfo(itemId), finalT = Math.max(0, tot.total - (discount || 0));
     // Generate invoice number at session-end time (not print time)
     const invoiceNo = await getInvoiceNo();
@@ -382,6 +382,7 @@ export default function CashierSystem() {
       discount: discount || 0, graceMins: sess.graceMins || 0, playerCount: sess.playerCount || 1,
       cashier: user?.name || "", sessionType: sess.sessionType || "ps",
       invoiceNo, status: "paid",
+      branchId: appCtx?.branch?.id, branchName: appCtx?.branch?.name,
     };
     setHistory((p) => [record, ...p]);
     // Supabase: add to history + remove session
@@ -411,6 +412,7 @@ export default function CashierSystem() {
     setSessions((p) => { const n = { ...p }; delete n[itemId]; return n; });
     setOrders((p) => { const n = { ...p }; delete n[itemId]; return n; });
     notify(t.sessionEnded + " ✓"); setView("main"); setSelItem(null);
+    return record.id;
   };
 
   // ── Hold session ──────────────────────────────────────────────────────────────
@@ -428,6 +430,7 @@ export default function CashierSystem() {
       playerCount: sess.playerCount || 1, cashier: user?.name || "",
       sessionType: sess.sessionType || "ps", invoiceNo,
       status: keepOccupied ? "held-occupied" : "held-free",
+      branchId: appCtx?.branch?.id, branchName: appCtx?.branch?.name,
     };
     setHistory((p) => [record, ...p]);
     if (tenantId) addHistoryRecord(tenantId, branchId, record).catch(() => {});
@@ -834,7 +837,7 @@ export default function CashierSystem() {
           return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} />;
         })()}
 
-        {view === "qr" && <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto"><QrOrdersPanel tenantId={tenantId} /></div>}
+        {view === "qr" && <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto"><QrOrdersPanel tenantId={tenantId} logo={logo} /></div>}
 
         {view === "history" && (
           <HistoryView
@@ -861,7 +864,7 @@ export default function CashierSystem() {
         {view === "debts" && <DebtsView debts={debts} setDebts={setDebts} role={user.role} notify={notify} settings={settings} logo={logo} />}
         {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} settings={settings} notify={notify} />}
         {view === "special-guests" && <SpecialGuestsView guests={specialGuests} setGuests={setSpecialGuests} currentUser={user.name} settings={settings} notify={notify} />}
-        {view === "stats" && <StatsView history={history} debts={debts} sessions={sessions} role={user.role} settings={settings} logo={logo} />}
+        {view === "stats" && <StatsView history={history} debts={debts} sessions={sessions} role={user.role} settings={settings} logo={logo} currentBranchId={appCtx?.branch?.id} currentBranchName={appCtx?.branch?.name} />}
         {view === "admin" && <AdminView floors={floors} setFloors={setFloors} menu={menu} setMenu={setMenu} pins={pins} setPins={setPins} roleNames={roleNames} setRoleNames={setRoleNames} role={user.role} notify={notify} onClearHistory={() => setHistory([])} onClearDebts={() => setDebts([])} settings={settings} setSettings={setSettings} logo={logo} setLogo={setLogo} tenantId={tenantId ?? ""} />}
       </main>
 

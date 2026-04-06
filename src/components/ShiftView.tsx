@@ -345,15 +345,43 @@ function EodReportModal({ shift, settings, logo, onDismiss }: {
         </div>
 
         {/* Footer buttons */}
-        <div className="p-5 pt-0 flex gap-3">
-          <button onClick={handlePrint}
-            className="btn flex-1 py-3 font-bold text-sm"
-            style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)" }}>
-            🖨️ {t.printReport ?? "طباعة التقرير"}
-          </button>
-          <button onClick={onDismiss}
-            className="btn flex-1 py-3 text-sm btn-ghost">
-            {t.done}
+        <div className="p-5 pt-0 flex flex-col gap-2">
+          <div className="flex gap-2">
+            <button onClick={handlePrint}
+              className="btn flex-1 py-3 font-bold text-sm"
+              style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)" }}>
+              🖨️ {t.printReport ?? "طباعة التقرير"}
+            </button>
+            <button onClick={onDismiss}
+              className="btn flex-1 py-3 text-sm btn-ghost">
+              {t.done}
+            </button>
+          </div>
+          {/* WhatsApp summary share */}
+          <button
+            onClick={() => {
+              const sarUnit = "ر.س";
+              const lines = [
+                `📊 تقرير نهاية اليوم — ${businessDate}`,
+                `🕐 ${fmtTime(shift.openedAt)} — ${fmtTime(shift.closedAt)}`,
+                "",
+                `✅ عدد الجلسات: ${s.sessionCount}`,
+                `💰 إجمالي الإيراد: ${fmtMoney(s.totalRevenue)} ${sarUnit}`,
+                `💵 نقدي: ${fmtMoney(s.cashRevenue)} ${sarUnit}`,
+                `💳 شبكة: ${fmtMoney(s.cardRevenue)} ${sarUnit}`,
+                `📲 تحويل: ${fmtMoney(s.transferRevenue)} ${sarUnit}`,
+                s.discountTotal > 0 ? `🏷 خصومات: ${fmtMoney(s.discountTotal)} ${sarUnit}` : "",
+                s.debtTotal > 0 ? `📋 ديون جديدة: ${fmtMoney(s.debtTotal)} ${sarUnit}` : "",
+                `✨ صافي الإيراد: ${fmtMoney(s.netRevenue)} ${sarUnit}`,
+                `💵 المتوقع في الصندوق: ${fmtMoney(s.expectedCashInDrawer ?? shift.cashFloat)} ${sarUnit}`,
+                "",
+                "مركز الصملة للترفيه",
+              ].filter(Boolean).join("\n");
+              window.open(`https://wa.me/?text=${encodeURIComponent(lines)}`, "_blank");
+            }}
+            className="btn w-full py-3 text-sm"
+            style={{ background: "color-mix(in srgb, var(--green) 10%, transparent)", color: "var(--green)", borderColor: "color-mix(in srgb, var(--green) 25%, transparent)" }}>
+            📱 {isRTL ? "مشاركة عبر واتساب" : "Share via WhatsApp"}
           </button>
         </div>
       </div>
