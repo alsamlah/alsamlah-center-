@@ -205,6 +205,64 @@ export interface Customer {
   lastVisit: number;
 }
 
+// ── Tournaments ──
+export type TournamentType = "ps" | "billiard" | "chess" | "tennis" | "baloot" | "other";
+export type TournamentFormat = "single-elimination" | "round-robin";
+
+export interface TournamentParticipant {
+  id: string;
+  name: string;
+  phone?: string;
+  isTeam: boolean;
+  teamMembers?: string[];       // display names of team members
+  seed?: number;
+  isBye?: boolean;              // bracket placeholder — never shown in UI
+  status: "registered" | "checked-in" | "eliminated" | "disqualified" | "winner";
+  entryPaid: boolean;
+  entryPayMethod?: "cash" | "card" | "transfer";
+  entryPaidAt?: number;
+  entryPaidBy?: string;
+}
+
+export interface TournamentMatch {
+  id: string;
+  round: number;
+  matchNumber: number;
+  participant1Id: string | null;
+  participant2Id: string | null;
+  score1: number | null;
+  score2: number | null;
+  winnerId: string | null;
+  isByeMatch?: boolean;         // auto-advanced, not shown to cashier
+  location?: string;            // free text e.g. "طاولة 3"
+  status: "pending" | "active" | "completed";
+  startTime: number | null;
+  endTime: number | null;
+}
+
+export interface Tournament {
+  id: string;
+  name: string;
+  type: TournamentType;
+  format: TournamentFormat;
+  status: "registration" | "active" | "completed" | "cancelled";
+  maxParticipants: number;
+  teamSize?: number;
+  entryFee: number;             // 0 = free
+  prizePool?: string;
+  notes?: string;
+  participants: TournamentParticipant[];
+  matches: TournamentMatch[];
+  createdAt: number;
+  createdBy: string;
+  startedAt: number | null;
+  completedAt: number | null;
+  cancelledAt: number | null;
+  cancelledBy: string | null;
+  winnerId: string | null;
+  branchId?: string;
+}
+
 // ── Calc result ──
 export interface CalcResult {
   remaining: number;

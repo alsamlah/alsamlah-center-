@@ -10,7 +10,7 @@
 import { supabase } from "@/lib/supabase";
 import type {
   Floor, MenuItem, Session, OrderItem,
-  HistoryRecord, Debt, Tenant, Branch, SpecialGuest, Customer,
+  HistoryRecord, Debt, Tenant, Branch, SpecialGuest, Customer, Tournament,
 } from "@/lib/supabase";
 import { getBusinessDay } from "@/lib/utils";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES } from "@/lib/defaults";
@@ -28,6 +28,7 @@ export interface TenantData {
   history: HistoryRecord[];
   debts: Debt[];
   customers: Customer[];
+  tournaments: Tournament[];
   pins: Record<UserRole, string>;
   roleNames: Record<UserRole, string>;
   settings: SystemSettings;
@@ -67,6 +68,7 @@ export async function loadTenantData(
     settingsRes,
     counterRes,
     customersRes,
+    tournamentsRes,
   ] = await Promise.allSettled([
     supabase.from("floors").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("menu_items").select("*").eq("tenant_id", tenantId).limit(1).single(),
@@ -76,6 +78,7 @@ export async function loadTenantData(
     supabase.from("tenant_settings").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("invoice_counter").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("customers").select("*").eq("tenant_id", tenantId).limit(1).single(),
+    supabase.from("tournaments").select("data").eq("tenant_id", tenantId),
   ]);
 
   // ── Floors ──
@@ -126,6 +129,12 @@ export async function loadTenantData(
   const customersRow = customersRes.status === "fulfilled" ? customersRes.value.data : null;
   const customers: Customer[] = customersRow?.data ?? parse(ls("als-customers"), []);
 
+  // ── Tournaments ──
+  const tournamentsRows = tournamentsRes.status === "fulfilled" ? tournamentsRes.value.data ?? [] : [];
+  const tournaments: Tournament[] = tournamentsRows.length > 0
+    ? tournamentsRows.map((r) => r.data as Tournament)
+    : parse(ls("als-tournaments"), []);
+
   // ── Logo (still stored in tenant row, base64 from localStorage or tenant.logo_url) ──
   const logo: string | null = ls("als-logo");
 
@@ -141,12 +150,13 @@ export async function loadTenantData(
   lsSet("als-history", history);
   lsSet("als-debts", debts);
   lsSet("als-customers", customers);
+  lsSet("als-tournaments", tournaments);
   lsSet("als-pins", pins);
   lsSet("als-role-names", roleNames);
   lsSet("als-settings", settings);
   lsSet("als-invoice-counter", String(invoiceCounter));
 
-  return { floors, menu, sessions, orders, history, debts, customers, pins, roleNames, settings, logo, invoiceCounter };
+  return { floors, menu, sessions, orders, history, debts, customers, tournaments, pins, roleNames, settings, logo, invoiceCounter };
 }
 
 // ── Tenant & Business Profile ─────────────────────────────────────────────────
@@ -425,4 +435,67 @@ export async function syncCustomers(tenantId: string, branchId: string | null, c
     { tenant_id: tenantId, branch_id: branchId, data: customers, updated_at: new Date().toISOString() },
     { onConflict: "tenant_id" }
   );
+}
+
+// ── Tournaments ───────────────────────────────────────────────────────────────
+
+export async function loadTournaments(tenantId: string): Promise<Tournament[]> {
+  const { data } = await supabase.from("tournaments").select("data").eq("tenant_id", tenantId);
+  const tournaments = (data ?? []).map((r) => r.data as Tournament);
+  if (tournaments.length > 0) lsSet("als-tournaments", tournaments);
+  return tournaments.length > 0 ? tournaments : parse(ls("als-tournaments"), []);
+}
+
+export async function upsertTournament(
+  tenantId: string,
+  branchId: string | null,
+  tournament: Tournament,
+  allTournaments: Tournament[],
+) {
+  // Update localStorage with full updated array
+  const updated = allTournaments.some((t) => t.id === tournament.id)
+    ? allTournaments.map((t) => (t.id === tournament.id ? tournament : t))
+    : [...allTournaments, tournament];
+  lsSet("als-tournaments", updated);
+
+  // Each tournament is its own row — upsert by id
+  await supabase.from("tournaments").upsert(
+    {
+      id: tournament.id,
+      tenant_id: tenantId,
+      branch_id: branchId,
+      data: tournament,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" }
+  );
+}
+
+export async function cancelTournament(
+  tenantId: string,
+  branchId: string | null,
+  tournament: Tournament,
+  allTournaments: Tournament[],
+  cancelledBy: string,
+) {
+  const cancelled: Tournament = {
+    ...tournament,
+    status: "cancelled",
+    cancelledAt: Date.now(),
+    cancelledBy,
+  };
+  await upsertTournament(tenantId, branchId, cancelled, allTournaments);
+  return cancelled;
+}
+
+export function subscribeToTournaments(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`tournaments:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "tournaments",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
 }

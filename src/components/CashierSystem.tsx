@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, MATCH_PRICE } from "@/lib/defaults";
 import { DEFAULT_SETTINGS, FONTS, FONT_SIZES, THEMES, T } from "@/lib/settings";
-import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest } from "@/lib/supabase";
+import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
 import { uid, fmtTime, fmtMoney, fmtD } from "@/lib/utils";
 import { printSession } from "@/lib/printReceipt";
@@ -14,6 +14,7 @@ import {
   loadDebts, subscribeToSessions, subscribeToHistory, subscribeToDebts,
   syncSpecialGuests, loadSpecialGuests, subscribeToSpecialGuests,
   syncCustomers,
+  upsertTournament, loadTournaments, subscribeToTournaments, cancelTournament,
   updateHistoryRecord as updateHistoryRecordDB,
   deleteHistoryRecord as deleteHistoryRecordDB,
 } from "@/lib/db";
@@ -29,6 +30,7 @@ import ShiftView from "./ShiftView";
 import CustomersView from "./CustomersView";
 import ScannerModal from "./ScannerModal";
 import SpecialGuestsView, { GUEST_TYPE_CONFIG, isInspectorType } from "./SpecialGuestsView";
+import TournamentsView from "./TournamentsView";
 import SarSymbol from "./SarSymbol";
 
 export default function CashierSystem() {
@@ -65,6 +67,9 @@ export default function CashierSystem() {
 
   // ── Special guests ──
   const [specialGuests, setSpecialGuests] = useState<SpecialGuest[]>([]);
+
+  // ── Tournaments ──
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
 
   // ── UI state ──
   const [view, setView] = useState("main");
@@ -127,6 +132,7 @@ export default function CashierSystem() {
     try { const v = localStorage.getItem("als-shift-history"); if (v) setShiftHistory(JSON.parse(v)); } catch {}
     try { const v = localStorage.getItem("als-customers"); if (v) setCustomers(JSON.parse(v)); } catch {}
     try { const v = localStorage.getItem("als-special-guests"); if (v) setSpecialGuests(JSON.parse(v)); } catch {}
+    try { const v = localStorage.getItem("als-tournaments"); if (v) setTournaments(JSON.parse(v)); } catch {}
   }, []);
 
   // ── Load from Supabase when tenant is ready (overrides localStorage) ──
@@ -143,6 +149,7 @@ export default function CashierSystem() {
       setHistory(data.history);
       setDebts(data.debts);
       setCustomers(data.customers);
+      setTournaments(data.tournaments);
       setPins(data.pins);
       setRoleNames(data.roleNames);
       setSettings(data.settings);
@@ -264,11 +271,27 @@ export default function CashierSystem() {
       }).catch(() => {});
     });
 
+    // Tournaments: each event carries one tournament row — merge into local state
+    const tournamentsSub = subscribeToTournaments(tenantId, (payload) => {
+      const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
+      if (p.eventType === "DELETE") {
+        const id = p.old.id as string;
+        setTournaments((prev) => prev.filter((t) => t.id !== id));
+      } else {
+        const updated = p.new.data as Tournament;
+        setTournaments((prev) => {
+          const exists = prev.some((t) => t.id === updated.id);
+          return exists ? prev.map((t) => t.id === updated.id ? updated : t) : [...prev, updated];
+        });
+      }
+    });
+
     return () => {
       sessionsSub.unsubscribe();
       historySub.unsubscribe();
       debtsSub.unsubscribe();
       specialGuestsSub.unsubscribe();
+      tournamentsSub.unsubscribe();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
@@ -580,6 +603,7 @@ export default function CashierSystem() {
     { id: "debts", icon: "💰", label: t.debts, show: true },
     { id: "customers", icon: "👥", label: t.customers, show: true },
     { id: "special-guests", icon: "👁", label: t.specialGuests, show: true },
+    { id: "tournaments", icon: "🏆", label: t.tournaments, show: true },
     { id: "stats", icon: "📊", label: t.stats, show: true },
     { id: "admin", icon: "⚙️", label: t.admin, show: isManager },
   ].filter((n) => n.show);
@@ -864,6 +888,28 @@ export default function CashierSystem() {
         {view === "debts" && <DebtsView debts={debts} setDebts={setDebts} role={user.role} notify={notify} settings={settings} logo={logo} />}
         {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} settings={settings} notify={notify} />}
         {view === "special-guests" && <SpecialGuestsView guests={specialGuests} setGuests={setSpecialGuests} currentUser={user.name} settings={settings} notify={notify} />}
+        {view === "tournaments" && (
+          <TournamentsView
+            tournaments={tournaments}
+            settings={settings}
+            role={user.role}
+            notify={notify}
+            onUpsert={(tour) => {
+              setTournaments((prev) => {
+                const exists = prev.some((t) => t.id === tour.id);
+                return exists ? prev.map((t) => t.id === tour.id ? tour : t) : [...prev, tour];
+              });
+              if (tenantId) upsertTournament(tenantId, branchId, tour, tournaments).catch(() => {});
+            }}
+            onCancel={(id) => {
+              const tour = tournaments.find((t) => t.id === id);
+              if (!tour || !tenantId) return;
+              cancelTournament(tenantId, branchId, tour, tournaments, user.name).then((cancelled) => {
+                setTournaments((prev) => prev.map((t) => t.id === id ? cancelled : t));
+              }).catch(() => {});
+            }}
+          />
+        )}
         {view === "stats" && <StatsView history={history} debts={debts} sessions={sessions} role={user.role} settings={settings} logo={logo} currentBranchId={appCtx?.branch?.id} currentBranchName={appCtx?.branch?.name} />}
         {view === "admin" && <AdminView floors={floors} setFloors={setFloors} menu={menu} setMenu={setMenu} pins={pins} setPins={setPins} roleNames={roleNames} setRoleNames={setRoleNames} role={user.role} notify={notify} onClearHistory={() => setHistory([])} onClearDebts={() => setDebts([])} settings={settings} setSettings={setSettings} logo={logo} setLogo={setLogo} tenantId={tenantId ?? ""} />}
       </main>
