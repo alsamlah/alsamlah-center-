@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1500">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1500px;
+    height: 480px;
+    background: #080202;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  /* Background radial glow */
+  body::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+      radial-gradient(ellipse 800px 220px at 50% 42%, rgba(140,10,5,0.28) 0%, transparent 70%),
+      radial-gradient(ellipse 600px 160px at 50% 72%, rgba(130,110,0,0.22) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  /* Frame lines */
+  .frame-top, .frame-bottom {
+    position: absolute;
+    left: 60px; right: 60px;
+    height: 1.5px;
+  }
+  .frame-top {
+    top: 82px;
+    background: linear-gradient(to right, transparent, #cc1200 8%, #cc1200 92%, transparent);
+    box-shadow: 0 0 10px #cc1200, 0 0 22px rgba(204,18,0,0.5);
+  }
+  .frame-bottom {
+    bottom: 82px;
+    background: linear-gradient(to right, transparent, #c8a600 8%, #c8a600 92%, transparent);
+    box-shadow: 0 0 10px #c8a600, 0 0 22px rgba(200,166,0,0.5);
+  }
+
+  /* Corner dots */
+  .dot {
+    position: absolute;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .dot-tl { top: 78px;  left: 56px;  background: #ff2200; box-shadow: 0 0 8px 4px rgba(255,34,0,0.7); }
+  .dot-tr { top: 78px;  right: 56px; background: #ff2200; box-shadow: 0 0 8px 4px rgba(255,34,0,0.7); }
+  .dot-bl { bottom: 78px; left: 56px;  background: #ffcc00; box-shadow: 0 0 8px 4px rgba(255,204,0,0.7); }
+  .dot-br { bottom: 78px; right: 56px; background: #ffcc00; box-shadow: 0 0 8px 4px rgba(255,204,0,0.7); }
+
+  /* Arabic text */
+  .arabic {
+    font-family: 'Noto Kufi Arabic', sans-serif;
+    font-weight: 900;
+    font-size: 105px;
+    line-height: 1;
+    direction: rtl;
+    unicode-bidi: bidi-override;
+    color: #ff3a1a;
+    text-shadow:
+      0 0 8px  #ff1100,
+      0 0 20px rgba(255,30,0,0.85),
+      0 0 45px rgba(255,10,0,0.55),
+      0 0 80px rgba(200,0,0,0.3);
+    letter-spacing: 2px;
+    margin-bottom: 18px;
+    white-space: nowrap;
+  }
+
+  /* English text */
+  .english {
+    font-family: 'Arial Black', 'Impact', sans-serif;
+    font-weight: 900;
+    font-size: 86px;
+    letter-spacing: 12px;
+    line-height: 1;
+    direction: ltr;
+    color: #ffcc11;
+    text-shadow:
+      0 0 6px  #ffaa00,
+      0 0 18px rgba(255,180,0,0.85),
+      0 0 40px rgba(255,150,0,0.55),
+      0 0 70px rgba(200,120,0,0.3);
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+  <div class="frame-top"></div>
+  <div class="frame-bottom"></div>
+  <div class="dot dot-tl"></div>
+  <div class="dot dot-tr"></div>
+  <div class="dot dot-bl"></div>
+  <div class="dot dot-br"></div>
+
+  <div class="arabic">مركز الصملة للترفيه</div>
+  <div class="english">ALSAMLAH</div>
+</body>
+</html>
