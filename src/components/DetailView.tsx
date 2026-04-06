@@ -431,6 +431,8 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                         cashier: "",
                         playerCount: session.playerCount || 1,
                         logo,
+                        vatNumber: settings.vatEnabled ? (settings.vatNumber || "") : "",
+                        sellerNameAr: settings.sellerNameAr || "",
                       }, opt.type);
                     }
                     onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc);

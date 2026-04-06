@@ -474,6 +474,8 @@ export default function HistoryView({ history, settings, logo, isManager, onEdit
                     ordersTotal: h.ordersTotal, discount: h.discount || 0, debtAmount: h.debtAmount || 0,
                     total: h.total, payMethod: h.payMethod, cashier: h.cashier || "",
                     playerCount: h.playerCount || 1, logo,
+                    vatNumber: settings.vatEnabled ? (settings.vatNumber || "") : "",
+                    sellerNameAr: settings.sellerNameAr || "",
                   }, "thermal")}
                     className="btn px-2 py-1 text-[10px]" style={{ color: "var(--text2)", borderColor: "var(--border)" }}>🖨️</button>
                   <button onClick={() => printSession({
@@ -483,6 +485,8 @@ export default function HistoryView({ history, settings, logo, isManager, onEdit
                     ordersTotal: h.ordersTotal, discount: h.discount || 0, debtAmount: h.debtAmount || 0,
                     total: h.total, payMethod: h.payMethod, cashier: h.cashier || "",
                     playerCount: h.playerCount || 1, logo,
+                    vatNumber: settings.vatEnabled ? (settings.vatNumber || "") : "",
+                    sellerNameAr: settings.sellerNameAr || "",
                   }, "a4")}
                     className="btn px-2 py-1 text-[10px]"
                     style={{ color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 20%, transparent)" }}>📄</button>

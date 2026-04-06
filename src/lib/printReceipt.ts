@@ -3,6 +3,8 @@
  * Opens a new browser window with the receipt HTML and triggers window.print()
  */
 
+import { generateZatcaQR, vatFromInclusive, baseFromInclusive, fmtVatAmount } from "./zatca";
+
 export type PrintType = "thermal" | "a4";
 
 // Official SAMA SAR symbol as inline SVG string (for use inside HTML templates)
@@ -28,7 +30,10 @@ export interface SessionPrintData {
   payMethod: string;
   cashier: string;
   playerCount: number;
-  logo?: string | null; // base64 data URL or null
+  logo?: string | null;           // base64 data URL or null
+  vatNumber?: string;             // ZATCA VAT registration number (optional)
+  sellerNameAr?: string;          // Arabic seller name for ZATCA QR
+  recordId?: string;              // HistoryRecord.id for receipt URL
 }
 
 export interface DebtPrintData {
@@ -136,7 +141,7 @@ function openAndPrint(html: string, type: PrintType) {
 // THERMAL — 80mm receipt
 // ══════════════════════════════════════════
 
-function thermalSessionHTML(d: SessionPrintData): string {
+function thermalSessionHTML(d: SessionPrintData, zatcaQrImg: string | null = null): string {
   const logoHtml = d.logo
     ? `<img src="${d.logo}" style="height:55px;object-fit:contain;display:block;margin:0 auto 6px">`
     : "";
@@ -152,6 +157,24 @@ function thermalSessionHTML(d: SessionPrintData): string {
     ? d.orders.map(o => row(`${o.icon} ${o.name}`, `${o.price} ${SAR}`)).join("")
     : `<div style="text-align:center;font-size:11px;color:#888;padding:4px 0">—</div>`;
 
+  // VAT breakdown (only when vatNumber is present)
+  const hasVat = !!(zatcaQrImg && d.vatNumber);
+  const vatAmt  = hasVat ? vatFromInclusive(d.total) : 0;
+  const baseAmt = hasVat ? baseFromInclusive(d.total) : 0;
+
+  const vatSection = hasVat ? `
+${line}
+${row("المبلغ قبل الضريبة", `${fmtVatAmount(baseAmt)} ${SAR}`)}
+${row("ضريبة القيمة المضافة ١٥٪", `${fmtVatAmount(vatAmt)} ${SAR}`)}
+${d.vatNumber ? row("الرقم الضريبي", d.vatNumber) : ""}` : "";
+
+  const qrSection = zatcaQrImg ? `
+${line}
+<div style="text-align:center;margin:6px 0 2px">
+  <div style="font-size:9px;color:#888;margin-bottom:4px">فاتورة ضريبية مبسّطة — هيئة الزكاة والضريبة</div>
+  <img src="${zatcaQrImg}" style="width:100px;height:100px;display:block;margin:0 auto">
+</div>` : "";
+
   return `<!DOCTYPE html><html dir="rtl" lang="ar">
 <head><meta charset="UTF-8">
 <style>
@@ -162,8 +185,8 @@ function thermalSessionHTML(d: SessionPrintData): string {
 </style></head><body>
 ${logoHtml}
 <div style="text-align:center;margin-bottom:4px">
-  <div style="font-weight:900;font-size:15px;letter-spacing:2px">ALSAMLAH</div>
-  <div style="font-size:11px;color:#555">مركز الصملة للترفيه</div>
+  <div style="font-weight:900;font-size:15px;letter-spacing:2px">${d.sellerNameAr || "ALSAMLAH"}</div>
+  ${d.sellerNameAr ? `<div style="font-size:10px;letter-spacing:1px;color:#444">ALSAMLAH</div>` : `<div style="font-size:11px;color:#555">مركز الصملة للترفيه</div>`}
 </div>
 ${line}
 ${row("فاتورة", invNo(d.invoiceNo))}
@@ -186,15 +209,17 @@ ${row(d.sessionType === "match" ? "⚽ جلسة مبارة" : "⏱ الوقت", 
 ${d.ordersTotal > 0 ? row("☕ الطلبات", `${d.ordersTotal} ${SAR}`) : ""}
 ${d.discount > 0 ? row("🎁 خصم", `- ${d.discount} ${SAR}`) : ""}
 ${d.debtAmount > 0 ? row("📋 دين", `${d.debtAmount} ${SAR}`) : ""}
+${vatSection}
 ${line}
 <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:900;margin:4px 0">
-  <span>المجموع</span><span>${d.total} ${SAR}</span>
+  <span>المجموع${hasVat ? " (شامل الضريبة)" : ""}</span><span>${d.total} ${SAR}</span>
 </div>
 ${row("الدفع", payLabel(d.payMethod))}
 ${d.cashier ? row("الكاشير", d.cashier) : ""}
+${qrSection}
 ${line}
 <div style="text-align:center;font-size:11px;color:#555;margin-top:8px;line-height:1.8">
-  شكراً لزيارتكم 🙏<br>مركز الصملة للترفيه
+  شكراً لزيارتكم 🙏<br>${d.sellerNameAr || "مركز الصملة للترفيه"}
 </div>
 <div style="height:16px"></div>
 </body></html>`;
@@ -204,11 +229,16 @@ ${line}
 // A4 — Full professional invoice
 // ══════════════════════════════════════════
 
-function a4SessionHTML(d: SessionPrintData): string {
+function a4SessionHTML(d: SessionPrintData, zatcaQrImg: string | null = null): string {
+  const sellerDisplay = d.sellerNameAr || "مركز الصملة للترفيه";
   const logoSection = d.logo
     ? `<img src="${d.logo}" style="height:70px;object-fit:contain;max-width:260px">`
     : `<div style="font-size:28px;font-weight:900;letter-spacing:2px;color:#6c8cff">AL<span style="color:#1a1a2e">SAMLAH</span></div>
-       <div style="font-size:12px;color:#888;margin-top:2px">مركز الصملة للترفيه</div>`;
+       <div style="font-size:12px;color:#888;margin-top:2px">${sellerDisplay}</div>`;
+
+  const hasVat = !!(zatcaQrImg && d.vatNumber);
+  const vatAmt  = hasVat ? vatFromInclusive(d.total) : 0;
+  const baseAmt = hasVat ? baseFromInclusive(d.total) : 0;
 
   const orderRows = d.orders.length
     ? d.orders.map((o, i) =>
@@ -301,21 +331,49 @@ function a4SessionHTML(d: SessionPrintData): string {
         <td style="padding:9px 14px;border-bottom:1px solid #eef0f8">📋 مؤجل (دين)</td>
         <td style="padding:9px 14px;text-align:left;border-bottom:1px solid #eef0f8;font-weight:600">${d.debtAmount} ${SAR}</td>
       </tr>` : ""}
+      ${hasVat ? `
+      <tr style="background:#f0fff4">
+        <td style="padding:9px 14px;border-bottom:1px solid #eef0f8;color:#555;font-size:12px">المبلغ قبل الضريبة</td>
+        <td style="padding:9px 14px;text-align:left;border-bottom:1px solid #eef0f8;font-size:12px">${fmtVatAmount(baseAmt)} ${SAR}</td>
+      </tr>
+      <tr style="background:#f0fff4">
+        <td style="padding:9px 14px;border-bottom:1px solid #d4ead8;color:#555;font-size:12px">ضريبة القيمة المضافة (١٥٪)</td>
+        <td style="padding:9px 14px;text-align:left;border-bottom:1px solid #d4ead8;font-size:12px;color:#22c55e;font-weight:600">${fmtVatAmount(vatAmt)} ${SAR}</td>
+      </tr>` : ""}
       <tr class="total-row">
-        <td>المجموع الكلي</td>
+        <td>المجموع${hasVat ? " (شامل الضريبة)" : " الكلي"}</td>
         <td style="text-align:left">${d.total} ${SAR}</td>
       </tr>
       <tr>
         <td style="padding:9px 14px;color:#888">طريقة الدفع</td>
         <td style="padding:9px 14px;text-align:left;font-weight:600">${payLabel(d.payMethod)}</td>
       </tr>
+      ${hasVat ? `<tr>
+        <td style="padding:9px 14px;color:#888;font-size:12px">الرقم الضريبي</td>
+        <td style="padding:9px 14px;text-align:left;font-family:monospace;font-size:12px">${d.vatNumber}</td>
+      </tr>` : ""}
     </tbody>
   </table>
 </div>
 
+${hasVat && zatcaQrImg ? `
+<!-- ZATCA QR -->
+<div style="display:flex;align-items:center;gap:18px;margin:20px 0;padding:14px 16px;background:#f7f8ff;border:1px solid #e5e7eb;border-radius:10px">
+  <img src="${zatcaQrImg}" style="width:100px;height:100px;flex-shrink:0">
+  <div>
+    <div style="font-size:11px;font-weight:700;color:#6c8cff;margin-bottom:4px">فاتورة ضريبية مبسّطة</div>
+    <div style="font-size:10px;color:#888;line-height:1.7">
+      متوافقة مع متطلبات هيئة الزكاة والضريبة والجمارك<br>
+      امسح رمز QR للتحقق من الفاتورة
+    </div>
+    <div style="font-size:10px;color:#aaa;margin-top:4px">${sellerDisplay}</div>
+    <div style="font-size:10px;font-family:monospace;color:#aaa">${d.vatNumber}</div>
+  </div>
+</div>` : ""}
+
 <!-- Footer -->
 <div style="text-align:center;margin-top:36px;padding-top:18px;border-top:1px solid #eee;color:#aaa;font-size:11px;line-height:2">
-  <div style="font-size:13px;color:#888;font-weight:600">شكراً لزيارتكم — مركز الصملة للترفيه</div>
+  <div style="font-size:13px;color:#888;font-weight:600">شكراً لزيارتكم — ${sellerDisplay}</div>
   <div>ALSAMLAH Entertainment Center</div>
 </div>
 </body></html>`;
@@ -414,8 +472,20 @@ ${d.note ? `<div style="background:#f8f8f8;padding:12px 16px;border-radius:6px;f
 // Public API
 // ══════════════════════════════════════════
 
-export function printSession(data: SessionPrintData, type: PrintType) {
-  const html = type === "thermal" ? thermalSessionHTML(data) : a4SessionHTML(data);
+export async function printSession(data: SessionPrintData, type: PrintType) {
+  // Generate ZATCA QR code image (PNG data URL) if VAT is configured
+  let zatcaQrImg: string | null = null;
+  if (data.vatNumber && data.sellerNameAr) {
+    zatcaQrImg = await generateZatcaQR({
+      sellerName: data.sellerNameAr,
+      vatNumber: data.vatNumber,
+      invoiceTimestamp: data.endTime,
+      totalWithVat: data.total,
+    });
+  }
+  const html = type === "thermal"
+    ? thermalSessionHTML(data, zatcaQrImg)
+    : a4SessionHTML(data, zatcaQrImg);
   openAndPrint(html, type);
 }
 

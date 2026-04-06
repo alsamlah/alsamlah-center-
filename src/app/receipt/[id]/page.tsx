@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { HistoryRecord } from "@/lib/supabase";
+import { generateZatcaQR, vatFromInclusive, baseFromInclusive } from "@/lib/zatca";
 import SarSymbol from "@/components/SarSymbol";
 
 // ── SAR SVG inline for standalone page (no layout dependency) ──
@@ -54,6 +55,8 @@ export default function ReceiptPage() {
   const [record, setRecord] = useState<HistoryRecord | null>(null);
   const [tenantName, setTenantName] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [vatNumber, setVatNumber] = useState<string | null>(null);
+  const [zatcaQrImg, setZatcaQrImg] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>("loading");
 
   useEffect(() => {
@@ -77,17 +80,36 @@ export default function ReceiptPage() {
         const tid = rows[0].tenant_id as string;
         setRecord(rec);
 
-        // Fetch tenant name + logo
-        const { data: tenant } = await supabase
-          .from("tenants")
-          .select("name_ar, logo_url")
-          .eq("id", tid)
-          .single();
+        // Fetch tenant name + logo + VAT settings
+        const [tenantRes, settingsRes] = await Promise.all([
+          supabase.from("tenants").select("name_ar, logo_url").eq("id", tid).single(),
+          supabase.from("tenant_settings").select("settings").eq("tenant_id", tid).single(),
+        ]);
 
-        if (tenant) {
-          setTenantName(tenant.name_ar || "مركز الصملة للترفيه");
-          setLogoUrl(tenant.logo_url);
+        if (tenantRes.data) {
+          setTenantName(tenantRes.data.name_ar || "مركز الصملة للترفيه");
+          setLogoUrl(tenantRes.data.logo_url);
         }
+
+        // Extract VAT info from tenant_settings
+        const sysSettings = settingsRes.data?.settings as Record<string, unknown> | null;
+        const vat = sysSettings?.vatNumber as string | undefined;
+        const seller = (sysSettings?.sellerNameAr as string | undefined)
+          || tenantRes.data?.name_ar || "مركز الصملة للترفيه";
+        const vatEnabled = sysSettings?.vatEnabled as boolean | undefined;
+
+        if (vatEnabled && vat && vat.length === 15) {
+          setVatNumber(vat);
+          // Generate ZATCA QR
+          const qrImg = await generateZatcaQR({
+            sellerName: seller,
+            vatNumber: vat,
+            invoiceTimestamp: rec.endTime,
+            totalWithVat: rec.total,
+          });
+          if (qrImg) setZatcaQrImg(qrImg);
+        }
+
         setState("found");
       } catch {
         setState("error");
@@ -244,6 +266,21 @@ export default function ReceiptPage() {
               <Row label="📋 مؤجل"
                 value={<span style={{ color: "#ef4444" }}>{record.debtAmount} {SAR}</span>} />
             )}
+            {/* VAT breakdown */}
+            {vatNumber && (
+              <>
+                <div style={{ borderTop: "1px dashed #e5e7eb", margin: "8px 0" }} />
+                <Row
+                  label="المبلغ قبل الضريبة"
+                  value={<>{baseFromInclusive(record.total).toFixed(2)} {SAR}</>}
+                />
+                <Row
+                  label="ضريبة القيمة المضافة (١٥٪)"
+                  value={<span style={{ color: "#22c55e" }}>{vatFromInclusive(record.total).toFixed(2)} {SAR}</span>}
+                />
+                <Row label="الرقم الضريبي" value={<span style={{ fontFamily: "monospace", fontSize: 11 }}>{vatNumber}</span>} />
+              </>
+            )}
           </Section>
 
           {/* ── Total ── */}
@@ -258,7 +295,9 @@ export default function ReceiptPage() {
             marginBottom: 16,
           }}>
             <div>
-              <div style={{ fontSize: 11, color: "#888" }}>المجموع الكلي</div>
+              <div style={{ fontSize: 11, color: "#888" }}>
+                {vatNumber ? "الإجمالي شامل الضريبة" : "المجموع الكلي"}
+              </div>
               <div style={{ fontSize: 26, fontWeight: 900, color: "#6c8cff" }}>
                 {record.total} {SAR}
               </div>
@@ -270,6 +309,32 @@ export default function ReceiptPage() {
               </div>
             </div>
           </div>
+
+          {/* ── ZATCA QR Code ── */}
+          {zatcaQrImg && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              background: "#f8f9ff",
+              border: "1px solid #e5e7eb",
+              borderRadius: 14,
+              padding: "14px 16px",
+              marginBottom: 16,
+            }}>
+              <img src={zatcaQrImg} alt="ZATCA QR"
+                style={{ width: 90, height: 90, flexShrink: 0, borderRadius: 8 }} />
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6c8cff", marginBottom: 3 }}>
+                  فاتورة ضريبية مبسّطة
+                </div>
+                <div style={{ fontSize: 10, color: "#aaa", lineHeight: 1.7 }}>
+                  متوافقة مع متطلبات<br />
+                  هيئة الزكاة والضريبة والجمارك
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Cashier ── */}
           {record.cashier && (

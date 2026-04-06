@@ -12,6 +12,9 @@ export interface SystemSettings {
   lang: Language;
   loyaltyPointsRatio: number; // SAR per 1 point (default 50)
   endOfDayHour: number;       // hour (0–23) at which the business day resets (default 5 = 5AM)
+  vatNumber?: string;         // ZATCA VAT registration number (15 digits, starts+ends with 3)
+  sellerNameAr?: string;      // Arabic seller name for ZATCA QR (defaults to tenant name_ar)
+  vatEnabled?: boolean;       // show VAT breakdown on invoices (default false until configured)
 }
 
 export const DEFAULT_SETTINGS: SystemSettings = {
@@ -21,6 +24,9 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   lang: "ar",
   loyaltyPointsRatio: 50,
   endOfDayHour: 5,
+  vatNumber: "",
+  sellerNameAr: "",
+  vatEnabled: false,
 };
 
 export const FONTS: Record<FontFamily, { name: string; nameAr: string; css: string; google: string }> = {
@@ -145,6 +151,16 @@ export const T: Record<Language, Record<string, string>> = {
     heldOccupied: "معلق — مشغول", heldFree: "معلق — شاغل",
     holdTitle: "تعليق الجلسة", holdKeepOccupied: "الغرفة تبقى مشغولة",
     holdFreeRoom: "تحرير الغرفة", holdConfirm: "تأكيد التعليق",
+    // VAT / ZATCA
+    vatSection: "ضريبة القيمة المضافة (ZATCA)",
+    vatNumber: "الرقم الضريبي", vatNumberNote: "١٥ رقماً، يبدأ وينتهي بـ 3",
+    sellerNameAr: "اسم المنشأة (عربي)", sellerNameArNote: "الاسم الرسمي كما في السجل التجاري",
+    vatEnabled: "تفعيل الفاتورة الضريبية",
+    vatEnabledNote: "يضيف تفاصيل الضريبة ورمز QR للزكاة على كل فاتورة",
+    vatAmount: "ضريبة القيمة المضافة (١٥٪)",
+    priceBeforeVat: "المبلغ قبل الضريبة",
+    priceTotalInclVat: "الإجمالي شامل الضريبة",
+    zatcaCompliant: "فاتورة ضريبية متوافقة مع الزكاة والضريبة",
   },
   en: {
     appName: "ALSAMLAH",
@@ -235,5 +251,15 @@ export const T: Record<Language, Record<string, string>> = {
     heldOccupied: "Held — Occupied", heldFree: "Held — Free",
     holdTitle: "Hold Session", holdKeepOccupied: "Keep room occupied",
     holdFreeRoom: "Free the room", holdConfirm: "Confirm Hold",
+    // VAT / ZATCA
+    vatSection: "VAT — ZATCA Compliance",
+    vatNumber: "VAT Registration Number", vatNumberNote: "15 digits, starts & ends with 3",
+    sellerNameAr: "Seller Name (Arabic)", sellerNameArNote: "Official name as per commercial register",
+    vatEnabled: "Enable Tax Invoice",
+    vatEnabledNote: "Adds VAT breakdown and ZATCA QR code to every invoice",
+    vatAmount: "VAT Amount (15%)",
+    priceBeforeVat: "Amount before VAT",
+    priceTotalInclVat: "Total incl. VAT",
+    zatcaCompliant: "ZATCA-compliant tax invoice",
   },
 };

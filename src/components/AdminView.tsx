@@ -401,6 +401,76 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
             </div>
           </div>
 
+          {/* ── VAT / ZATCA ── */}
+          <div className="card p-5" style={{ borderColor: settings.vatEnabled ? "color-mix(in srgb, var(--green) 30%, transparent)" : undefined }}>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold" style={{ color: "var(--text2)" }}>
+                🧾 {t.vatSection}
+              </label>
+              {/* Toggle */}
+              <button
+                onClick={() => setSettings((s) => ({ ...s, vatEnabled: !s.vatEnabled }))}
+                className="text-xs px-3 py-1 rounded-full font-bold transition-all"
+                style={settings.vatEnabled
+                  ? { background: "color-mix(in srgb, var(--green) 15%, transparent)", color: "var(--green)", border: "1px solid color-mix(in srgb, var(--green) 30%, transparent)" }
+                  : { background: "var(--input-bg)", color: "var(--text2)", border: "1px solid var(--border)" }}>
+                {settings.vatEnabled ? (isRTL ? "✓ مفعّل" : "✓ Enabled") : (isRTL ? "معطّل" : "Disabled")}
+              </button>
+            </div>
+            <p className="text-[11px] mb-4" style={{ color: "var(--text2)", opacity: 0.6 }}>
+              {t.vatEnabledNote}
+            </p>
+
+            {settings.vatEnabled && (
+              <div className="flex flex-col gap-4">
+                {/* VAT Number */}
+                <div>
+                  <label className="text-xs font-semibold mb-1 block" style={{ color: "var(--text2)" }}>
+                    {t.vatNumber}
+                  </label>
+                  <p className="text-[11px] mb-2" style={{ color: "var(--text2)", opacity: 0.55 }}>
+                    {t.vatNumberNote}
+                  </p>
+                  <input
+                    type="text"
+                    maxLength={15}
+                    placeholder="300000000000003"
+                    value={settings.vatNumber ?? ""}
+                    onChange={(e) => setSettings((s) => ({ ...s, vatNumber: e.target.value.replace(/\D/g, "").slice(0, 15) }))}
+                    className="input w-full"
+                    dir="ltr"
+                  />
+                  {settings.vatNumber && settings.vatNumber.length === 15 && (
+                    <p className="text-[11px] mt-1" style={{ color: "var(--green)" }}>✓ {isRTL ? "رقم صحيح (١٥ رقم)" : "Valid (15 digits)"}</p>
+                  )}
+                  {settings.vatNumber && settings.vatNumber.length > 0 && settings.vatNumber.length !== 15 && (
+                    <p className="text-[11px] mt-1" style={{ color: "var(--red)" }}>
+                      {isRTL ? `${settings.vatNumber.length}/15 رقم` : `${settings.vatNumber.length}/15 digits`}
+                    </p>
+                  )}
+                </div>
+
+                {/* Seller Name Arabic */}
+                <div>
+                  <label className="text-xs font-semibold mb-1 block" style={{ color: "var(--text2)" }}>
+                    {t.sellerNameAr}
+                  </label>
+                  <p className="text-[11px] mb-2" style={{ color: "var(--text2)", opacity: 0.55 }}>
+                    {t.sellerNameArNote}
+                  </p>
+                  <input
+                    type="text"
+                    placeholder={isRTL ? "مركز الصملة للترفيه" : "Al Samlah Entertainment Center"}
+                    value={settings.sellerNameAr ?? ""}
+                    onChange={(e) => setSettings((s) => ({ ...s, sellerNameAr: e.target.value }))}
+                    className="input w-full"
+                    dir="rtl"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Font Size */}
           <div className="card p-5">
             <label className="text-xs font-semibold mb-3 block" style={{ color: "var(--text2)" }}>{t.fontSize}</label>
