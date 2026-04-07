@@ -58,7 +58,8 @@ export interface Session {
   durationMins: number;
   graceMins: number;
   playerCount: number;
-  sessionType?: "ps" | "match";
+  sessionType?: "ps" | "match" | "walkin";
+  manualPrice?: number;
   switchedFrom?: { itemId: string; itemName: string; switchedAt: number };
 }
 
@@ -87,7 +88,7 @@ export interface Zone {
   pricePerHour: number;
   minCharge: number;
   priceTiers?: PriceTier[];
-  pricingMode?: "hourly" | "tiered" | "per-hit";
+  pricingMode?: "hourly" | "tiered" | "per-hit" | "walkin" | "manual";
   hitPrice?: number;
   items: { id: string; name: string; sub?: string }[];
 }
@@ -118,7 +119,7 @@ export interface HistoryRecord {
   graceMins: number;
   playerCount: number;
   cashier: string;
-  sessionType?: "ps" | "match";
+  sessionType?: "ps" | "match" | "walkin";
   switchedFrom?: string;                                 // item name if activity was switched
   invoiceNo?: string;                                    // zero-padded "0001", resets daily
   status?: "paid" | "held-occupied" | "held-free";      // undefined = "paid" (backward compat)

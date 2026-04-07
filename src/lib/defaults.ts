@@ -16,6 +16,31 @@ const CHESS_TIERS = [
   { minutes: 30, price: 10 }, { minutes: 60, price: 20 }, { minutes: 90, price: 30 }, { minutes: 120, price: 40 },
 ];
 
+export const COUNTER_FLOOR_ID = "counter-floor";
+export const COUNTER_ZONE_ID = "counter";
+export const MASSAGE_ZONE_ID = "massage";
+
+export const COUNTER_FLOOR: Floor = {
+  id: COUNTER_FLOOR_ID,
+  name: "☕ طلبات مباشرة",
+  zones: [
+    {
+      id: COUNTER_ZONE_ID,
+      name: "كاونتر",
+      icon: "☕",
+      pricePerHour: 0,
+      minCharge: 0,
+      pricingMode: "walkin",
+      items: [
+        { id: "counter-1", name: "كاونتر 1" },
+        { id: "counter-2", name: "كاونتر 2" },
+        { id: "counter-3", name: "كاونتر 3" },
+        { id: "counter-4", name: "كاونتر 4" },
+      ],
+    },
+  ],
+};
+
 export const DEFAULT_FLOORS: Floor[] = [
   {
     id: "f1",
@@ -26,6 +51,7 @@ export const DEFAULT_FLOORS: Floor[] = [
       { id: "chess", name: "شطرنج", icon: "♟️", pricePerHour: 20, minCharge: 30, priceTiers: CHESS_TIERS, pricingMode: "tiered", items: Array.from({ length: 2 }, (_, i) => ({ id: `chess-${i + 1}`, name: `شطرنج ${i + 1}` })) },
       { id: "baloot1", name: "بلوت", icon: "🃏", pricePerHour: 20, minCharge: 30, priceTiers: BALOOT_TIERS, pricingMode: "tiered", items: [{ id: "baloot1-1", name: "بلوت 1" }] },
       { id: "boxing", name: "بوكسينج", icon: "🥊", pricePerHour: 0, minCharge: 0, pricingMode: "per-hit", hitPrice: 7.5, items: [{ id: "boxing-1", name: "بوكسينج" }] },
+      { id: MASSAGE_ZONE_ID, name: "مساج", icon: "💆", pricePerHour: 0, minCharge: 0, pricingMode: "manual", items: [{ id: "massage-1", name: "كرسي مساج 1" }, { id: "massage-2", name: "كرسي مساج 2" }] },
     ],
   },
   {

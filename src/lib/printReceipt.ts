@@ -17,7 +17,7 @@ export interface SessionPrintData {
   itemName: string;
   zoneName: string;
   customerName: string;
-  sessionType?: "ps" | "match";
+  sessionType?: "ps" | "match" | "walkin";
   startTime: number;
   endTime: number;
   duration: number;

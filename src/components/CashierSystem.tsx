@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, MATCH_PRICE, TIER_GRACE_MINUTES } from "@/lib/defaults";
+import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, MATCH_PRICE, TIER_GRACE_MINUTES, COUNTER_FLOOR, COUNTER_FLOOR_ID } from "@/lib/defaults";
 import { DEFAULT_SETTINGS, FONTS, FONT_SIZES, THEMES, T } from "@/lib/settings";
 import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament, InspectionRegister } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
@@ -48,7 +48,7 @@ export default function CashierSystem() {
   const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
 
   // ── Core state ──
-  const [floors, setFloors] = useState<Floor[]>(DEFAULT_FLOORS);
+  const [floors, setFloors] = useState<Floor[]>([...DEFAULT_FLOORS, COUNTER_FLOOR]);
   const [menu, setMenu] = useState<MenuItem[]>(DEFAULT_MENU);
   const [sessions, setSessions] = useState<Record<string, Session>>({});
   const [orders, setOrders] = useState<Record<string, OrderItem[]>>({});
@@ -146,7 +146,9 @@ export default function CashierSystem() {
     loadedTenantRef.current = appCtx.tenant.id;
     setDbLoading(true);
     loadTenantData(appCtx.tenant.id, appCtx.branch?.id ?? null).then((data) => {
-      setFloors(data.floors);
+      // Always ensure counter floor is present (virtual floor, not stored in DB)
+      const hasCounter = data.floors.some((f) => f.id === COUNTER_FLOOR_ID);
+      setFloors(hasCounter ? data.floors : [...data.floors, COUNTER_FLOOR]);
       setMenu(data.menu);
       setSessions(data.sessions);
       setOrders(data.orders);
@@ -350,6 +352,17 @@ export default function CashierSystem() {
       return { remaining: elapsed, elapsed, progress: -1, timePrice: MATCH_PRICE, ordersTotal, total: MATCH_PRICE + ordersTotal, isOvertime: false, isOpen: true, graceMins: 0 };
     }
 
+    // ── Walk-in / counter: orders only, no time charge ──
+    if (zone?.pricingMode === "walkin" || sess.sessionType === "walkin") {
+      return { remaining: elapsed, elapsed, progress: -1, timePrice: 0, ordersTotal, total: ordersTotal, isOvertime: false, isOpen: true, graceMins: 0 };
+    }
+
+    // ── Manual pricing: cashier enters price ──
+    if (zone?.pricingMode === "manual") {
+      const timePrice = sess.manualPrice || 0;
+      return { remaining: elapsed, elapsed, progress: -1, timePrice, ordersTotal, total: timePrice + ordersTotal, isOvertime: false, isOpen: true, graceMins: 0 };
+    }
+
     // ── Boxing: per-hit pricing ──
     if (zone?.pricingMode === "per-hit") {
       const hits = sess.playerCount || 1;
@@ -390,17 +403,19 @@ export default function CashierSystem() {
     return { remaining, elapsed, progress, timePrice, ordersTotal, total: timePrice + ordersTotal, isOvertime, isOpen, graceMins: grace };
   };
 
-  const startSession = (itemId: string, name: string, dur: number, pc: number, type: "ps" | "match" = "ps", phone?: string) => {
+  const startSession = (itemId: string, name: string, dur: number, pc: number, type: "ps" | "match" | "walkin" = "ps", phone?: string) => {
     const info = getInfo(itemId);
     const isBoxing = info?.zone?.pricingMode === "per-hit";
+    const isWalkin = info?.zone?.pricingMode === "walkin" || type === "walkin";
+    const isManual = info?.zone?.pricingMode === "manual";
     const newSess: Session = {
       startTime: Date.now(),
       customerName: name || (settings.lang === "ar" ? "زائر" : "Guest"),
       phone,
-      durationMins: type === "match" || isBoxing ? 0 : dur,
+      durationMins: type === "match" || isBoxing || isWalkin || isManual ? 0 : dur,
       graceMins: 0,
       playerCount: pc || 1,
-      sessionType: isBoxing ? "ps" : type,
+      sessionType: isWalkin ? "walkin" : isBoxing ? "ps" : type,
     };
     setSessions((p) => ({ ...p, [itemId]: newSess }));
     const curOrders = orders[itemId] || [];
@@ -451,6 +466,14 @@ export default function CashierSystem() {
   const updatePlayerCount = (itemId: string, count: number) => {
     setSessions((p) => {
       const updated = { ...p, [itemId]: { ...p[itemId], playerCount: count } };
+      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] || []).catch(() => {});
+      return updated;
+    });
+  };
+
+  const updateManualPrice = (itemId: string, price: number) => {
+    setSessions((p) => {
+      const updated = { ...p, [itemId]: { ...p[itemId], manualPrice: price } };
       if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] || []).catch(() => {});
       return updated;
     });
@@ -884,8 +907,8 @@ export default function CashierSystem() {
             </div>
 
             {/* Floor Tabs + Scan button */}
-            <div className="flex gap-2 mb-6 items-center">
-              {floors.map((f) => (
+            <div className="flex gap-2 mb-6 items-center flex-wrap">
+              {floors.filter((f) => f.id !== COUNTER_FLOOR_ID).map((f) => (
                 <button key={f.id} onClick={() => setSelFloor(f.id)}
                   className="btn px-5 py-2.5 text-sm"
                   style={{
@@ -913,13 +936,15 @@ export default function CashierSystem() {
                     <span className="text-base font-bold" style={{ color: "var(--text)" }}>{zone.name}</span>
                     {actZ > 0 && <span className="badge" style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)" }}>{actZ} {t.active}</span>}
                     {zonePeople > 0 && <span className="badge" style={{ background: "color-mix(in srgb, var(--blue) 12%, transparent)", color: "var(--blue)" }}>👤 {zonePeople}</span>}
+                    {zone.pricingMode === "manual" && <span className="badge text-[10px]" style={{ background: "color-mix(in srgb, var(--yellow) 15%, transparent)", color: "var(--yellow)" }}>💆 {t.manualPricing}</span>}
                     {zone.pricePerHour > 0 && <span className="mr-auto text-xs flex items-center gap-1" style={{ color: "var(--text2)", opacity: 0.5 }}><SarSymbol size={12} /> {zone.pricePerHour}{t.perHour}</span>}
-                    {zone.pricePerHour === 0 && <span className="mr-auto text-xs" style={{ color: "var(--text2)", opacity: 0.5 }}>{t.free}</span>}
+                    {zone.pricePerHour === 0 && zone.pricingMode !== "manual" && zone.pricingMode !== "walkin" && <span className="mr-auto text-xs" style={{ color: "var(--text2)", opacity: 0.5 }}>{t.free}</span>}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                     {zone.items.map((item) => {
                       const isAct = !!sessions[item.id], sess = sessions[item.id], tot = isAct ? calcTotal(item.id) : null;
                       const isOT = tot?.isOvertime, isOp = tot?.isOpen;
+                      const isManualZone = zone.pricingMode === "manual";
                       return (
                         <div key={item.id} onClick={() => { setSelItem(item.id); setView("detail"); }}
                           className={`card p-4 cursor-pointer relative overflow-hidden anim-fade ${isOT ? "card-danger" : isAct ? "card-active" : ""}`}
@@ -933,17 +958,28 @@ export default function CashierSystem() {
                                 <div className="text-[9px] font-bold mb-1" style={{ color: "var(--green)" }}>⚽ {t.matchSession}</div>
                               )}
                               <div className="text-[10px]" style={{ color: "var(--text2)" }}>{sess.customerName}</div>
-                              <div className="text-2xl font-bold mt-1 font-mono tabular-nums" style={{ color: sess.sessionType === "match" ? "var(--green)" : isOT ? "var(--red)" : "var(--accent)", letterSpacing: "0.05em" }}>
-                                {isOp ? fmtD(tot.elapsed) : fmtD(Math.max(0, tot.remaining))}
-                              </div>
-                              {isOT && <div className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--red)" }}>⚠ {t.overtime}</div>}
-                              {!isOp && sess.sessionType !== "match" && (
-                                <div className="progress-bar mt-2">
-                                  <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, tot.progress * 100))}%`, background: isOT ? "var(--red)" : (tot.progress * 100) < 20 ? "var(--yellow)" : "var(--green)" }} />
+                              {isManualZone ? (
+                                <div className="mt-1">
+                                  <div className="text-[10px]" style={{ color: "var(--yellow)" }}>💆 {t.openSession}</div>
+                                  <div className="text-sm font-bold flex items-center gap-1 mt-1" style={{ color: "var(--yellow)" }}>
+                                    {sess.manualPrice ? <>{fmtMoney(sess.manualPrice)} <SarSymbol size={10} /></> : <span style={{ opacity: 0.5 }}>{t.enterManualPrice}</span>}
+                                  </div>
                                 </div>
+                              ) : (
+                                <>
+                                  <div className="text-2xl font-bold mt-1 font-mono tabular-nums" style={{ color: sess.sessionType === "match" ? "var(--green)" : sess.sessionType === "walkin" ? "var(--green)" : isOT ? "var(--red)" : "var(--accent)", letterSpacing: "0.05em" }}>
+                                    {isOp ? fmtD(tot.elapsed) : fmtD(Math.max(0, tot.remaining))}
+                                  </div>
+                                  {isOT && <div className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--red)" }}>⚠ {t.overtime}</div>}
+                                  {!isOp && sess.sessionType !== "match" && (
+                                    <div className="progress-bar mt-2">
+                                      <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, tot.progress * 100))}%`, background: isOT ? "var(--red)" : (tot.progress * 100) < 20 ? "var(--yellow)" : "var(--green)" }} />
+                                    </div>
+                                  )}
+                                </>
                               )}
                               <div className="flex items-center justify-between mt-2">
-                                <span className="text-xs font-bold flex items-center gap-1" style={{ color: sess.sessionType === "match" ? "var(--green)" : "var(--blue)" }}>{fmtMoney(tot.total)} <SarSymbol size={12} /></span>
+                                <span className="text-xs font-bold flex items-center gap-1" style={{ color: sess.sessionType === "match" || sess.sessionType === "walkin" ? "var(--green)" : isManualZone ? "var(--yellow)" : "var(--blue)" }}>{fmtMoney(tot.total)} <SarSymbol size={12} /></span>
                                 {(sess.playerCount || 0) > 0 && <span className="text-[10px]" style={{ color: "var(--blue)" }}>👤{sess.playerCount}</span>}
                               </div>
                             </div>
@@ -957,6 +993,45 @@ export default function CashierSystem() {
                 </div>
               );
             })}
+
+            {/* ── Counter / Walk-in Orders Section ── */}
+            {(() => {
+              const counterZone = floors.find((f) => f.id === COUNTER_FLOOR_ID)?.zones[0];
+              if (!counterZone) return null;
+              const activeCounter = counterZone.items.filter((i) => sessions[i.id]).length;
+              return (
+                <div className="mt-4 pt-6" style={{ borderTop: "1px solid var(--border)" }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xl">☕</span>
+                    <span className="text-base font-bold" style={{ color: "var(--text)" }}>{t.walkinZone}</span>
+                    {activeCounter > 0 && <span className="badge" style={{ background: "color-mix(in srgb, var(--green) 12%, transparent)", color: "var(--green)" }}>{activeCounter} {t.active}</span>}
+                    <span className="mr-auto text-xs" style={{ color: "var(--text2)", opacity: 0.5 }}>{t.noTimeCharge}</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {counterZone.items.map((item) => {
+                      const isAct = !!sessions[item.id], sess = sessions[item.id], tot = isAct ? calcTotal(item.id) : null;
+                      return (
+                        <div key={item.id} onClick={() => { setSelItem(item.id); setView("detail"); }}
+                          className={`card p-4 cursor-pointer relative overflow-hidden anim-fade ${isAct ? "card-active" : ""}`}
+                          style={{ minHeight: 100 }}>
+                          {isAct && <div className={`absolute top-3 ${isRTL ? "left-3" : "right-3"} w-2 h-2 rounded-full anim-pulse`} style={{ background: "var(--green)" }} />}
+                          <div className="font-bold text-sm" style={{ color: "var(--text)" }}>{item.name}</div>
+                          {isAct && sess && tot ? (
+                            <div className="mt-2">
+                              <div className="text-[10px]" style={{ color: "var(--text2)" }}>{sess.customerName}</div>
+                              <div className="text-sm font-bold flex items-center gap-1 mt-1" style={{ color: "var(--green)" }}>{fmtMoney(tot.total)} <SarSymbol size={11} /></div>
+                              {(tot.ordersTotal === 0) && <div className="text-[10px] mt-0.5" style={{ color: "var(--text2)", opacity: 0.5 }}>☕ {t.addOrder}</div>}
+                            </div>
+                          ) : (
+                            <div className="mt-3 text-xs" style={{ color: "var(--text2)", opacity: 0.4 }}>+ {t.newWalkinOrder}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -981,7 +1056,7 @@ export default function CashierSystem() {
         {view === "detail" && selItem && (() => {
           const info = getInfo(selItem);
           if (!info) return null;
-          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} switchTargets={sessions[selItem] ? getSwitchTargets(selItem) : []} onSwitchActivity={switchActivity} />;
+          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} onUpdateManualPrice={updateManualPrice} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} switchTargets={sessions[selItem] ? getSwitchTargets(selItem) : []} onSwitchActivity={switchActivity} />;
         })()}
 
         {view === "qr" && <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto"><QrOrdersPanel tenantId={tenantId} logo={logo} /></div>}

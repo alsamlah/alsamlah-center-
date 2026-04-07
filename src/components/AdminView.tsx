@@ -92,8 +92,18 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
             <div key={z.id} className="card p-4 mb-2">
               <div className="flex items-center gap-2 mb-3"><span className="text-lg">{z.icon}</span><span className="text-sm font-bold" style={{ color: "var(--text)" }}>{z.name}</span>
                 {z.pricingMode === "per-hit" && <span className="badge text-xs" style={{ background: "color-mix(in srgb, var(--yellow) 15%, transparent)", color: "var(--yellow)" }}>🥊 {t.perHit}</span>}
+                {z.pricingMode === "manual" && <span className="badge text-xs" style={{ background: "color-mix(in srgb, var(--blue) 15%, transparent)", color: "var(--blue)" }}>💆 {isRTL ? "يدوي" : "Manual"}</span>}
+                {z.pricingMode === "walkin" && <span className="badge text-xs" style={{ background: "color-mix(in srgb, var(--green) 15%, transparent)", color: "var(--green)" }}>☕ {isRTL ? "طلبات مباشرة" : "Walk-in"}</span>}
               </div>
-              {z.pricingMode === "per-hit" ? (
+              {z.pricingMode === "manual" ? (
+                <div className="text-xs py-2 px-3 rounded-lg" style={{ background: "color-mix(in srgb, var(--blue) 8%, transparent)", color: "var(--text2)", border: "1px dashed color-mix(in srgb, var(--blue) 25%, transparent)" }}>
+                  {isRTL ? "التسعير يدوي — يُدخل الكاشير السعر أثناء الجلسة" : "Manual pricing — cashier enters price during session"}
+                </div>
+              ) : z.pricingMode === "walkin" ? (
+                <div className="text-xs py-2 px-3 rounded-lg" style={{ background: "color-mix(in srgb, var(--green) 8%, transparent)", color: "var(--text2)", border: "1px dashed color-mix(in srgb, var(--green) 25%, transparent)" }}>
+                  {isRTL ? "طلبات مباشرة — بدون رسوم وقت، فقط المنيو" : "Walk-in orders — no time charge, menu only"}
+                </div>
+              ) : z.pricingMode === "per-hit" ? (
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.hitPrice}</label>

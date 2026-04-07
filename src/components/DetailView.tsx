@@ -15,10 +15,11 @@ interface ItemInfo { id: string; name: string; sub?: string; zone: Zone; floor: 
 interface SwitchTarget { id: string; name: string; zoneName: string }
 interface Props {
   itemId: string; info: ItemInfo; session: Session | null; orders: OrderItem[]; menu: MenuItem[]; calc: CalcResult | null;
-  onBack: () => void; onStartSession: (id: string, name: string, dur: number, pc: number, type?: "ps" | "match", phone?: string) => void;
+  onBack: () => void; onStartSession: (id: string, name: string, dur: number, pc: number, type?: "ps" | "match" | "walkin", phone?: string) => void;
   onEndSession: (id: string, method: string, debt: number, disc: number, extra?: { payMethods?: Array<{method:string;amount:number}>; splitCount?: number }) => Promise<string | void> | void;
   onAddOrder: (id: string, item: MenuItem) => void; onRemoveOrder: (id: string, oid: string) => void;
   onAddGrace: (id: string, mins: number) => void; onUpdatePlayerCount: (id: string, c: number) => void;
+  onUpdateManualPrice?: (id: string, price: number) => void;
   settings: SystemSettings;
   logo?: string | null;
   getInvoiceNo?: () => Promise<string | number>;
@@ -28,7 +29,7 @@ interface Props {
   onSwitchActivity?: (fromItemId: string, toItemId: string) => void;
 }
 
-export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, settings, logo, getInvoiceNo, customers, onHoldSession, switchTargets, onSwitchActivity }: Props) {
+export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, onUpdateManualPrice, settings, logo, getInvoiceNo, customers, onHoldSession, switchTargets, onSwitchActivity }: Props) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuCat, setMenuCat] = useState("");
   const [selDur, setSelDur] = useState(30);
@@ -56,6 +57,8 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   const activeCat = menuCat || menuCats[0] || "";
 
   const isPerHit = info.zone.pricingMode === "per-hit";
+  const isWalkin = info.zone.pricingMode === "walkin";
+  const isManual = info.zone.pricingMode === "manual";
   const zoneTiers = info.zone.priceTiers ?? [];
 
   // Filter DURATION_OPTS to only show durations that have matching tiers for this zone
@@ -90,7 +93,22 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
       {!session ? (
         /* ── Start Session Form ── */
         <div className="card p-6 anim-fade-up">
-          <div className="text-base font-bold mb-5" style={{ color: "var(--text)" }}>🎮 {t.startSession}</div>
+          <div className="text-base font-bold mb-5" style={{ color: "var(--text)" }}>
+            {isWalkin ? "☕" : isManual ? "💆" : "🎮"} {isWalkin ? t.newWalkinOrder : isManual ? t.massageSession : t.startSession}
+          </div>
+          {/* Walk-in quick start — just customer name (optional) then go */}
+          {(isWalkin || isManual) && (
+            <div className="mb-4">
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.custName} ({isRTL ? "اختياري" : "optional"})</label>
+              <input type="text" placeholder={isWalkin ? (isRTL ? "اسم الزبون..." : "Customer name...") : (isRTL ? "اسم الزبون..." : "Customer name...")} value={custName} onChange={(e) => setCustName(e.target.value)} className="input mb-4" />
+              <button onClick={() => onStartSession(itemId, custName, 0, 1, isWalkin ? "walkin" : "ps")}
+                className="btn w-full py-4 text-base font-bold"
+                style={{ background: isWalkin ? "color-mix(in srgb, var(--green) 15%, transparent)" : "color-mix(in srgb, var(--yellow) 15%, transparent)", color: isWalkin ? "var(--green)" : "var(--yellow)", borderColor: isWalkin ? "color-mix(in srgb, var(--green) 30%, transparent)" : "color-mix(in srgb, var(--yellow) 30%, transparent)" }}>
+                {isWalkin ? "☕ " : "💆 "}{isWalkin ? t.newWalkinOrder : t.start}
+              </button>
+            </div>
+          )}
+          {!isWalkin && !isManual && (<>
           {/* Customer name with autocomplete */}
           <div className="mb-4 relative">
             <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.custName}</label>
@@ -263,39 +281,75 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
             style={sessionType === "match" ? { background: "var(--green)", borderColor: "var(--green)" } : {}}>
             {isPerHit ? "🥊" : sessionType === "match" ? "⚽" : "▶"} {t.start}
           </button>
+          </>)}
         </div>
       ) : (
         /* ── Active Session ── */
         <div className="grid gap-4">
-          {/* Timer */}
-          <div className={`card p-6 anim-fade ${calc?.isOvertime ? "card-danger" : "card-active"}`}>
-            <div className="flex justify-between items-start mb-4">
+          {/* Timer / Session Header */}
+          <div className={`card p-6 anim-fade ${isWalkin ? "card-active" : isManual ? "" : calc?.isOvertime ? "card-danger" : "card-active"}`}
+            style={isManual ? { borderColor: "color-mix(in srgb, var(--yellow) 30%, transparent)", background: "color-mix(in srgb, var(--yellow) 5%, var(--surface))" } : {}}>
+            <div className="flex justify-between items-start mb-2">
               <div>
+                {isWalkin && <div className="text-xs font-bold mb-1" style={{ color: "var(--green)" }}>☕ {t.walkinSession}</div>}
+                {isManual && <div className="text-xs font-bold mb-1" style={{ color: "var(--yellow)" }}>💆 {t.massageSession}</div>}
                 {session.sessionType === "match" && (
                   <div className="text-xs font-bold mb-1" style={{ color: "var(--green)" }}>⚽ {t.matchSession}</div>
                 )}
                 <div className="text-sm font-medium" style={{ color: "var(--text2)" }}>{session.customerName}</div>
                 <div className="text-xs" style={{ color: "var(--text2)", opacity: 0.5 }}>{fmtTime(session.startTime)}</div>
               </div>
-              <div className="text-right">
-                <div className="text-4xl md:text-5xl font-bold font-mono tabular-nums"
-                  style={{ color: calc?.isOvertime ? "var(--red)" : session.sessionType === "match" ? "var(--green)" : "var(--accent)", letterSpacing: "0.05em" }}>
-                  {calc?.isOpen ? fmtD(calc.elapsed) : fmtD(Math.max(0, calc?.remaining || 0))}
+              {!isWalkin && !isManual && (
+                <div className="text-right">
+                  <div className="text-4xl md:text-5xl font-bold font-mono tabular-nums"
+                    style={{ color: calc?.isOvertime ? "var(--red)" : session.sessionType === "match" ? "var(--green)" : "var(--accent)", letterSpacing: "0.05em" }}>
+                    {calc?.isOpen ? fmtD(calc.elapsed) : fmtD(Math.max(0, calc?.remaining || 0))}
+                  </div>
+                  {calc?.isOvertime && <div className="text-xs font-semibold mt-1" style={{ color: "var(--red)" }}>⚠ {t.overtime}</div>}
+                  {calc?.isOpen && session.sessionType !== "match" && <div className="text-xs mt-1" style={{ color: "var(--yellow)" }}>{t.open}</div>}
                 </div>
-                {calc?.isOvertime && <div className="text-xs font-semibold mt-1" style={{ color: "var(--red)" }}>⚠ {t.overtime}</div>}
-                {calc?.isOpen && session.sessionType !== "match" && <div className="text-xs mt-1" style={{ color: "var(--yellow)" }}>{t.open}</div>}
-              </div>
+              )}
+              {isWalkin && (
+                <div className="text-right">
+                  <div className="text-xs font-bold" style={{ color: "var(--text2)", opacity: 0.5 }}>{t.noTimeCharge}</div>
+                  <div className="text-sm mt-1" style={{ color: "var(--text2)", opacity: 0.4 }}>⏱ {fmtD(calc?.elapsed || 0)}</div>
+                </div>
+              )}
             </div>
-            {!calc?.isOpen && calc && (
-              <div className="progress-bar"><div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, calc.progress * 100))}%`, background: calc.isOvertime ? "var(--red)" : (calc.progress * 100) < 20 ? "var(--yellow)" : "var(--green)" }} /></div>
-            )}
-            {(calc?.graceMins || 0) > 0 && <div className="text-xs mt-2" style={{ color: "var(--yellow)" }}>🎁 {calc?.graceMins} {t.freeMin}</div>}
-            {session.sessionType !== "match" && (
-              <div className="flex gap-2 mt-4">
-                {[5, 10, 15].map((m) => (
-                  <button key={m} onClick={() => onAddGrace(itemId, m)} className="btn btn-ghost flex-1 py-2 text-xs">+{m} {settings.lang === "ar" ? "د" : "m"}</button>
-                ))}
+
+            {/* Manual price input */}
+            {isManual && onUpdateManualPrice && (
+              <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>💆 {t.manualPriceLabel}</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number" min={0} step={1}
+                    placeholder={t.enterManualPrice}
+                    value={session.manualPrice || ""}
+                    onChange={(e) => onUpdateManualPrice(itemId, Number(e.target.value) || 0)}
+                    className="input text-lg font-bold"
+                    style={{ flex: 1, width: 0 }}
+                    dir="ltr"
+                  />
+                  <span style={{ color: "var(--yellow)", flexShrink: 0 }}><SarSymbol size={18} /></span>
+                </div>
               </div>
+            )}
+
+            {!isWalkin && !isManual && (
+              <>
+                {!calc?.isOpen && calc && (
+                  <div className="progress-bar"><div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, calc.progress * 100))}%`, background: calc.isOvertime ? "var(--red)" : (calc.progress * 100) < 20 ? "var(--yellow)" : "var(--green)" }} /></div>
+                )}
+                {(calc?.graceMins || 0) > 0 && <div className="text-xs mt-2" style={{ color: "var(--yellow)" }}>🎁 {calc?.graceMins} {t.freeMin}</div>}
+                {session.sessionType !== "match" && (
+                  <div className="flex gap-2 mt-4">
+                    {[5, 10, 15].map((m) => (
+                      <button key={m} onClick={() => onAddGrace(itemId, m)} className="btn btn-ghost flex-1 py-2 text-xs">+{m} {settings.lang === "ar" ? "د" : "m"}</button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
             <div className="flex items-center gap-2 mt-3">
               <span className="text-xs" style={{ color: "var(--text2)" }}>👤</span>
