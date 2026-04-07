@@ -16,7 +16,7 @@ interface SwitchTarget { id: string; name: string; zoneName: string }
 interface Props {
   itemId: string; info: ItemInfo; session: Session | null; orders: OrderItem[]; menu: MenuItem[]; calc: CalcResult | null;
   onBack: () => void; onStartSession: (id: string, name: string, dur: number, pc: number, type?: "ps" | "match", phone?: string) => void;
-  onEndSession: (id: string, method: string, debt: number, disc: number) => Promise<string | void> | void;
+  onEndSession: (id: string, method: string, debt: number, disc: number, extra?: { payMethods?: Array<{method:string;amount:number}>; splitCount?: number }) => Promise<string | void> | void;
   onAddOrder: (id: string, item: MenuItem) => void; onRemoveOrder: (id: string, oid: string) => void;
   onAddGrace: (id: string, mins: number) => void; onUpdatePlayerCount: (id: string, c: number) => void;
   settings: SystemSettings;
@@ -39,7 +39,12 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   const [discount, setDiscount] = useState("");
   const [debtAmt, setDebtAmt] = useState("");
   const [sessionType, setSessionType] = useState<"ps" | "match">("ps");
-  const [pendingPay, setPendingPay] = useState<{ method: string; debt: number; disc: number } | null>(null);
+  const [pendingPay, setPendingPay] = useState<{ method: string; debt: number; disc: number; payMethods?: Array<{method:string;amount:number}>; splitCount?: number } | null>(null);
+  const [splitCount, setSplitCount] = useState(1);
+  const [splitPayMode, setSplitPayMode] = useState(false);
+  const [cashPart, setCashPart] = useState("");
+  const [cardPart, setCardPart] = useState("");
+  const [xfrPart, setXfrPart] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showHold, setShowHold] = useState(false);
   const [holdDisc, setHoldDisc] = useState("");
@@ -405,6 +410,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                 </button>
               )}
             </div>
+            {/* Discount + Debt + آجل كامل */}
             <div className="flex gap-3 mb-4">
               <div className="flex-1">
                 <label className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--text2)" }}>{t.discount} (<SarSymbol size={11} />)</label>
@@ -412,9 +418,19 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
               </div>
               <div className="flex-1">
                 <label className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--text2)" }}>{t.debt} (<SarSymbol size={11} />)</label>
-                <input type="number" value={debtAmt} onChange={(e) => setDebtAmt(e.target.value)} placeholder="0" className="input" />
+                <div className="flex gap-1">
+                  <input type="number" value={debtAmt} onChange={(e) => setDebtAmt(e.target.value)} placeholder="0" className="input flex-1" />
+                  <button
+                    onClick={() => setDebtAmt(String(Math.max(0, (calc?.total || 0) - Number(discount || 0))))}
+                    className="btn px-2 text-[10px]"
+                    style={{ color: "var(--red)", borderColor: "color-mix(in srgb, var(--red) 25%, transparent)", background: "color-mix(in srgb, var(--red) 8%, transparent)", whiteSpace: "nowrap" }}>
+                    📋 {t.deferredInvoice ?? "آجل كامل"}
+                  </button>
+                </div>
               </div>
             </div>
+
+            {/* Bill summary */}
             {(Number(discount) > 0 || Number(debtAmt) > 0) && (
               <div className="card p-3 mb-4 text-xs" style={{ background: "var(--input-bg)" }}>
                 {Number(discount) > 0 && <div className="flex justify-between" style={{ color: "var(--blue)" }}><span>{t.discount}</span><span className="flex items-center gap-1">-{discount} <SarSymbol size={11} /></span></div>}
@@ -424,16 +440,85 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-3 gap-2">
-              {[{ m: "cash", l: "💵 " + t.cash, c: "btn-success" }, { m: "card", l: "💳 " + t.card, c: "btn-ghost" }, { m: "transfer", l: "📲 " + t.transfer, c: "" }].map((pm) => (
-                <button key={pm.m}
-                  onClick={() => setPendingPay({ method: pm.m, debt: Number(debtAmt) || 0, disc: Number(discount) || 0 })}
-                  className={`btn py-3.5 text-sm ${pm.c}`}
-                  style={!pm.c ? { background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 15%, transparent)" } : {}}>
-                  {pm.l}
-                </button>
-              ))}
+
+            {/* تقسيم الفاتورة */}
+            <div className="card p-3 mb-4" style={{ background: "var(--input-bg)" }}>
+              <div className="text-xs font-medium mb-2" style={{ color: "var(--text2)" }}>✂️ {t.splitBill ?? "تقسيم الفاتورة"}</div>
+              <div className="flex gap-1.5 flex-wrap">
+                {[1,2,3,4,5,6].map(n => (
+                  <button key={n} onClick={() => setSplitCount(n)}
+                    className="btn px-3 py-1.5 text-xs"
+                    style={splitCount === n ? { background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 30%, transparent)" } : { color: "var(--text2)" }}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+              {splitCount > 1 && calc && (
+                <div className="text-xs mt-2 font-bold" style={{ color: "var(--green)" }}>
+                  {t.perPerson ?? "نصيب كل شخص"}: {fmtMoney(Math.max(0, (calc.total - Number(discount||0) - Number(debtAmt||0)) / splitCount))} <SarSymbol size={11} />
+                </div>
+              )}
             </div>
+
+            {/* تقسيم طريقة الدفع */}
+            <div className="mb-4">
+              <button onClick={() => setSplitPayMode(v => !v)}
+                className="btn w-full py-2 text-xs mb-3"
+                style={splitPayMode ? { background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)" } : { color: "var(--text2)" }}>
+                💰 {t.splitPayment ?? "تقسيم طريقة الدفع"} {splitPayMode ? "✓" : ""}
+              </button>
+
+              {splitPayMode ? (() => {
+                const totalDue = Math.max(0, (calc?.total || 0) - Number(discount||0) - Number(debtAmt||0));
+                const entered = Number(cashPart||0) + Number(cardPart||0) + Number(xfrPart||0);
+                const remaining = totalDue - entered;
+                const isValid = Math.abs(remaining) < 0.01;
+                return (
+                  <div className="card p-3" style={{ background: "var(--input-bg)" }}>
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      {[
+                        { key: "cash",     label: "💵 " + t.cash,     val: cashPart, set: setCashPart },
+                        { key: "card",     label: "💳 " + t.card,     val: cardPart, set: setCardPart },
+                        { key: "transfer", label: "📲 " + t.transfer, val: xfrPart,  set: setXfrPart },
+                      ].map(pm => (
+                        <div key={pm.key}>
+                          <div className="text-[10px] mb-1" style={{ color: "var(--text2)" }}>{pm.label}</div>
+                          <input type="number" value={pm.val} onChange={e => pm.set(e.target.value)} placeholder="0" className="input text-xs py-1.5" />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-between text-xs mb-3" style={{ color: remaining > 0.01 ? "var(--red)" : remaining < -0.01 ? "var(--yellow)" : "var(--green)" }}>
+                      <span>{t.paymentTotal ?? "المجموع المدخل"}: {fmtMoney(entered)} <SarSymbol size={10} /></span>
+                      {!isValid && <span>⚠️ {t.paymentRemaining ?? "يتبقى"}: {fmtMoney(Math.abs(remaining))} <SarSymbol size={10} /></span>}
+                    </div>
+                    <button
+                      disabled={!isValid || entered === 0}
+                      onClick={() => {
+                        const methods: Array<{method:string;amount:number}> = [];
+                        if (Number(cashPart) > 0) methods.push({method:"cash",   amount:Number(cashPart)});
+                        if (Number(cardPart) > 0) methods.push({method:"card",   amount:Number(cardPart)});
+                        if (Number(xfrPart)  > 0) methods.push({method:"transfer",amount:Number(xfrPart)});
+                        const primary = methods.sort((a,b)=>b.amount-a.amount)[0]?.method ?? "cash";
+                        setPendingPay({ method: primary, debt: Number(debtAmt)||0, disc: Number(discount)||0, payMethods: methods, splitCount: splitCount > 1 ? splitCount : undefined });
+                      }}
+                      className="btn btn-primary w-full py-3 text-sm"
+                      style={!isValid || entered === 0 ? { opacity: 0.4 } : {}}>
+                      ✅ {t.confirmRefund ?? "تأكيد الدفع"}
+                    </button>
+                  </div>
+                );
+              })() : (
+                <div className="grid grid-cols-3 gap-2">
+                  {[{ m: "cash", l: "💵 " + t.cash, c: "btn-success" }, { m: "card", l: "💳 " + t.card, c: "btn-ghost" }, { m: "transfer", l: "📲 " + t.transfer, c: "" }].map((pm) => (
+                    <button key={pm.m}
+                      onClick={() => setPendingPay({ method: pm.m, debt: Number(debtAmt) || 0, disc: Number(discount) || 0, splitCount: splitCount > 1 ? splitCount : undefined })}
+                      className={`btn py-3.5 text-sm ${pm.c}`}
+                      style={!pm.c ? { background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 15%, transparent)" } : {}}>
+                      {pm.l}
+                    </button>
+                  ))}
+                </div>
+              )}</div>
           </div>
         </div>
       )}
@@ -510,7 +595,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                         sellerNameAr: settings.sellerNameAr || "",
                       }, opt.type);
                     }
-                    onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc);
+                    onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc, { payMethods: pendingPay.payMethods, splitCount: pendingPay.splitCount });
                     setPendingPay(null);
                   }}
                   className={`btn py-3 text-sm ${opt.type === "thermal" ? "" : opt.type === "a4" ? "" : "btn-ghost"}`}
@@ -532,7 +617,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                   ? (pendingPay.method === "cash" ? "كاش" : pendingPay.method === "card" ? "شبكة" : "تحويل")
                   : pendingPay.method;
                 // End session first to get the record ID for receipt URL
-                const recordId = await onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc);
+                const recordId = await onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc, { payMethods: pendingPay.payMethods, splitCount: pendingPay.splitCount });
                 setPendingPay(null);
                 const receiptUrl = recordId
                   ? `${window.location.origin}/receipt/${recordId}`
@@ -549,7 +634,8 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                   ...(pendingPay.disc > 0 ? [`🏷 ${t.discount}: -${fmtMoney(pendingPay.disc)} ${sarUnit}`] : []),
                   ...(pendingPay.debt > 0 ? [`📝 ${t.debt}: ${fmtMoney(pendingPay.debt)} ${sarUnit}`] : []),
                   `✅ ${t.total}: ${fmtMoney(cashDue)} ${sarUnit}`,
-                  `💳 ${isRTL ? "الدفع" : "Payment"}: ${payLabel}`,
+                  ...(pendingPay.splitCount && pendingPay.splitCount > 1 ? [`✂️ ${isRTL?"مقسّمة على":"Split between"} ${pendingPay.splitCount} — ${isRTL?"نصيب كل شخص":"per person"}: ${fmtMoney(cashDue / pendingPay.splitCount)} ${sarUnit}`] : []),
+                  `💳 ${isRTL ? "الدفع" : "Payment"}: ${pendingPay.payMethods ? pendingPay.payMethods.map(m=>`${m.method} ${fmtMoney(m.amount)}`).join(" + ") : payLabel}`,
                   ...(receiptUrl ? ["", `🧾 ${isRTL ? "الإيصال" : "Receipt"}: ${receiptUrl}`] : []),
                 ].filter(Boolean).join("\n");
                 window.open(`https://wa.me/?text=${encodeURIComponent(lines)}`, "_blank");

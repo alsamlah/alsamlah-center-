@@ -201,290 +201,331 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
     }, "a4");
   };
 
-  /* ── Excel Export (Power BI Level) ── */
-  const handleExcelExport = () => {
-    const ar = isRTL;
-    const esc = (v: string | number) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  /* ── Excel Export (exceljs — proper .xlsx, 4 sheets, Saudi Green palette) ── */
+  const handleExcelExport = async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ExcelJS = (await import("exceljs")).default as any;
+    const wb = new ExcelJS.Workbook();
+
+    // ── Color palette (Saudi Green + Gold, inspired by ScanTracker) ──
+    const C = {
+      headerDark:  "FF0F2A1D",
+      header1:     "FF1B4332",
+      header2:     "FF2D6A4F",
+      gold:        "FFD4A276",
+      goldLight:   "FFFDF6ED",
+      greenLight:  "FFDCFCE7",
+      blueLight:   "FFDBEAFE",
+      redLight:    "FFFEE2E2",
+      amberLight:  "FFFEF9C3",
+      tealLight:   "FFCCFBF1",
+      purpleLight: "FFF3E8FF",
+      row1:        "FFF9F8F6",
+      row2:        "FFFFFFFF",
+      text:        "FF111827",
+      textMuted:   "FF6B7280",
+      border:      "FFE8E4DF",
+      success:     "FF059669",
+      successText: "FF166534",
+      danger:      "FFDC2626",
+      warning:     "FFD97706",
+      white:       "FFFFFFFF",
+      goldText:    "FF92400E",
+    };
+
+    type CellStyleOpts = { bold?: boolean; size?: number; color?: string; bg?: string; align?: "left"|"center"|"right"; italic?: boolean; wrap?: boolean };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const applyStyle = (cell: any, opts: CellStyleOpts) => {
+      cell.font = { bold: opts.bold ?? false, size: opts.size ?? 10, color: { argb: opts.color ?? C.text }, name: "Arial", italic: opts.italic };
+      if (opts.bg) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: opts.bg } };
+      cell.alignment = { horizontal: opts.align ?? "right", vertical: "middle", readingOrder: "rightToLeft", wrapText: opts.wrap };
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const brd = (cell: any, color = C.border) => {
+      const b = { style: "thin", color: { argb: color } };
+      cell.border = { top: b, bottom: b, left: b, right: b };
+    };
+
     const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
     const mkBar = (val: number, max: number, len = 14) => {
       if (max === 0) return "";
       const filled = Math.round((val / max) * len);
-      return "\u2588".repeat(filled) + "\u2591".repeat(len - filled);
+      return "█".repeat(filled) + "░".repeat(len - filled);
     };
 
-    type TdOpts = { bold?: boolean; bg?: string; color?: string; align?: string; size?: number; colspan?: number; pad?: number };
-    const td = (v: string | number, opts: TdOpts = {}) => {
-      const s = [
-        "font-family:Arial,sans-serif",
-        `padding:${opts.pad ?? 7}px 10px`,
-        "border:1px solid #d1d5db",
-        "vertical-align:middle",
-        opts.bold ? "font-weight:700" : "",
-        opts.bg ? `background:${opts.bg}` : "",
-        opts.color ? `color:${opts.color}` : "",
-        opts.align ? `text-align:${opts.align}` : "",
-        opts.size ? `font-size:${opts.size}px` : "",
-      ].filter(Boolean).join(";");
-      const span = opts.colspan ? ` colspan="${opts.colspan}"` : "";
-      return `<td${span} style="${s}">${esc(v)}</td>`;
-    };
-    const gap = (cols: number) => `<tr style="height:10px">${Array(cols).fill(`<td style="border:none;padding:0"></td>`).join("")}</tr>`;
-    const secHeader = (title: string, cols: number, bg = "#1e40af") =>
-      `<tr>${td(title, { colspan: cols, bold: true, bg, color: "#ffffff", size: 13, pad: 10 })}</tr>`;
-
+    const ar = isRTL;
     const nowDate = new Date();
     const exportDate = nowDate.toLocaleDateString("ar-SA");
     const exportTime = nowDate.toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" });
 
-    // ═══════════════════════════════════════════
-    // SHEET 1 — DASHBOARD
-    // ═══════════════════════════════════════════
-    const C1 = 8;
-    let s1 = `<div id="sheet1"><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;direction:rtl;font-family:Arial">`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const gc = (ws: any, r: number, c: number) => ws.getRow(r).getCell(c);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const st = (cell: any, opts: { bold?: boolean; sz?: number; fg?: string; bg?: string; al?: "left"|"center"|"right" }) => {
+      cell.font = { bold: opts.bold, size: opts.sz ?? 10, color: { argb: opts.fg ?? C.text }, name: "Arial" };
+      if (opts.bg) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: opts.bg } };
+      cell.alignment = { horizontal: opts.al ?? "right", vertical: "middle", readingOrder: "rightToLeft" };
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bd = (cell: any, color = C.border) => { const s = { style: "thin", color: { argb: color } }; cell.border = { top: s, bottom: s, left: s, right: s }; };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const secHdr = (ws: any, r: number, nc: number, title: string, bg: string) => {
+      ws.mergeCells(r,1,r,nc); gc(ws,r,1).value=title; st(gc(ws,r,1),{bold:true,sz:12,fg:C.white,bg,al:"center"}); ws.getRow(r).height=22;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const colHdr = (ws: any, r: number, headers: string[], bg: string, fg = C.white) => {
+      headers.forEach((h,i)=>{ gc(ws,r,i+1).value=h; st(gc(ws,r,i+1),{bold:true,sz:10,fg,bg,al:"center"}); bd(gc(ws,r,i+1),bg); }); ws.getRow(r).height=18;
+    };
 
-    // Title bar
-    s1 += `<tr>${td(ar ? `\uD83D\uDCCA \u0645\u0631\u0643\u0632 \u0627\u0644\u0635\u0645\u0644\u0629 \u2014 \u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645` : "\uD83D\uDCCA ALSAMLAH \u2014 Dashboard", { colspan: C1, bold: true, bg: "#0f172a", color: "#ffffff", size: 16, pad: 14 })}</tr>`;
-    s1 += `<tr>${td(`${ar ? "\u0627\u0644\u0641\u062A\u0631\u0629" : "Period"}: ${periodLabel}   |   ${ar ? "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" : "Date"}: ${exportDate}   |   ${ar ? "\u0648\u0642\u062A \u0627\u0644\u062A\u0635\u062F\u064A\u0631" : "Exported"}: ${exportTime}`, { colspan: C1, bg: "#1e293b", color: "#94a3b8", size: 11 })}</tr>`;
-    s1 += gap(C1);
-
-    // KPI section header
-    s1 += secHeader(ar ? "\uD83D\uDCC8 \u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062A \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629" : "\uD83D\uDCC8 Key Performance Indicators", C1, "#1e40af");
-    s1 += gap(C1);
-
-    // KPI label row
-    const kpiLabels = [
-      { label: ar ? "\uD83D\uDCB0 \u0627\u0644\u0625\u064A\u0631\u0627\u062F \u0627\u0644\u0643\u0644\u064A" : "\uD83D\uDCB0 Total Revenue", bg: "#166534", fg: "#dcfce7" },
-      { label: ar ? "\uD83C\uDFAE \u0627\u0644\u062C\u0644\u0633\u0627\u062A" : "\uD83C\uDFAE Sessions", bg: "#1e40af", fg: "#dbeafe" },
-      { label: ar ? "\uD83D\uDC65 \u0627\u0644\u0632\u0648\u0627\u0631" : "\uD83D\uDC65 Visitors", bg: "#581c87", fg: "#f3e8ff" },
-      { label: ar ? "\uD83E\uDDFE \u0645\u062A\u0648\u0633\u0637 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629" : "\uD83E\uDDFE Avg Bill", bg: "#854d0e", fg: "#fef3c7" },
-      { label: ar ? "\u23F1 \u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0648\u0642\u062A" : "\u23F1 Total Time", bg: "#0f766e", fg: "#ccfbf1" },
-      { label: ar ? "\uD83D\uDCE6 \u0627\u0644\u0637\u0644\u0628\u0627\u062A" : "\uD83D\uDCE6 Orders", bg: "#075985", fg: "#e0f2fe" },
-      { label: ar ? "\uD83D\uDCB8 \u0627\u0644\u062E\u0635\u0648\u0645\u0627\u062A" : "\uD83D\uDCB8 Discounts", bg: "#7f1d1d", fg: "#fee2e2" },
-      { label: ar ? "\uD83D\uDCCB \u0627\u0644\u062F\u064A\u0648\u0646" : "\uD83D\uDCCB Debts", bg: "#713f12", fg: "#fef9c3" },
+    // ═══════ SHEET 1: Dashboard ═══════
+    const ws1 = wb.addWorksheet(ar?"لوحة التحكم":"Dashboard");
+    ws1.views=[{rightToLeft:ar}];
+    ws1.columns=[{width:22},{width:16},{width:16},{width:16},{width:16},{width:16},{width:16},{width:22}];
+    ws1.mergeCells(1,1,1,8); gc(ws1,1,1).value=ar?"📊 مركز الصملة — لوحة التحكم":"📊 ALSAMLAH — Dashboard";
+    st(gc(ws1,1,1),{bold:true,sz:16,fg:C.white,bg:C.headerDark,al:"center"}); ws1.getRow(1).height=30;
+    ws1.mergeCells(2,1,2,8); gc(ws1,2,1).value=`${ar?"الفترة":"Period"}: ${periodLabel}   |   ${ar?"التاريخ":"Date"}: ${exportDate}   |   ${ar?"وقت التصدير":"Exported"}: ${exportTime}`;
+    st(gc(ws1,2,1),{sz:10,fg:"FF94A3B8",bg:"FF1E293B",al:"center"}); ws1.getRow(2).height=18;
+    let r1=4;
+    ws1.mergeCells(r1,1,r1,8); gc(ws1,r1,1).value=ar?"📈 المؤشرات الرئيسية":"📈 Key Performance Indicators";
+    st(gc(ws1,r1,1),{bold:true,sz:13,fg:C.white,bg:C.header1,al:"center"}); ws1.getRow(r1).height=24; r1++;
+    const kpiDefs=[
+      {label:ar?"💰 الإيراد الكلي":"💰 Total Revenue",   bg:C.header2,  fg:C.greenLight,  val:`${fmt(totalRev)} ﷼`},
+      {label:ar?"🎮 الجلسات":"🎮 Sessions",              bg:"FF1E40AF", fg:C.blueLight,   val:fmt(totalSessions)},
+      {label:ar?"👥 الزوار":"👥 Visitors",               bg:"FF581C87", fg:C.purpleLight, val:fmt(totalPeople)},
+      {label:ar?"🍽️ متوسط الفاتورة":"🍽️ Avg Bill",     bg:"FF854D0E", fg:C.amberLight,  val:`${avgBill.toFixed(1)} ﷼`},
+      {label:ar?"⏱ إجمالي الوقت":"⏱ Total Time",       bg:"FF0F766E", fg:C.tealLight,   val:fmtD(totalTime)},
+      {label:ar?"📦 الطلبات":"📦 Orders",                bg:"FF075985", fg:"FFE0F2FE",    val:fmt(totalOrders)},
+      {label:ar?"💸 الخصومات":"💸 Discounts",            bg:"FF7F1D1D", fg:C.redLight,    val:`${fmt(totalDiscount)} ﷼`},
+      {label:ar?"📋 الديون":"📋 Debts",                  bg:"FF713F12", fg:C.amberLight,  val:`${fmt(totalDebtAmt)} ﷼`},
     ];
-    s1 += `<tr>${kpiLabels.map(k => td(k.label, { bold: true, bg: k.bg, color: k.fg, size: 10, align: "center" })).join("")}</tr>`;
-
-    const kpiVals = [
-      `${fmt(totalRev)} \uFDFC`,
-      fmt(totalSessions),
-      fmt(totalPeople),
-      `${avgBill.toFixed(1)} \uFDFC`,
-      fmtD(totalTime),
-      fmt(totalOrders),
-      `${fmt(totalDiscount)} \uFDFC`,
-      `${fmt(totalDebtAmt)} \uFDFC`,
-    ];
-    const kpiBgs = ["#dcfce7","#dbeafe","#f3e8ff","#fef3c7","#ccfbf1","#e0f2fe","#fee2e2","#fef9c3"];
-    const kpiFgs = ["#166534","#1e40af","#581c87","#854d0e","#0f766e","#075985","#7f1d1d","#713f12"];
-    s1 += `<tr>${kpiVals.map((v, i) => td(v, { bold: true, bg: kpiBgs[i], color: kpiFgs[i], size: 18, align: "center", pad: 12 })).join("")}</tr>`;
-    s1 += gap(C1);
-
-    // Revenue breakdown
-    s1 += secHeader(ar ? "\uD83D\uDCB5 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0625\u064A\u0631\u0627\u062F" : "\uD83D\uDCB5 Revenue Breakdown", C1, "#0f766e");
-    s1 += `<tr>${[ar?"\u0627\u0644\u0628\u0646\u062F":"Item", ar?"\u0627\u0644\u0645\u0628\u0644\u063A (\uFDFC)":"Amount (SAR)", ar?"\u0627\u0644\u0646\u0633\u0628\u0629":"Ratio", ar?"\u0631\u0633\u0645 \u0628\u064A\u0627\u0646\u064A":"Visual","","","",""].map((h,i) => td(h, { bold: true, bg: "#f1f5f9", color: "#374151", align: i>1?"center":"" })).join("")}</tr>`;
-    const revMax = Math.max(timeRev, ordersRev, 1);
-    [
-      { label: ar ? "\u23F1 \u0625\u064A\u0631\u0627\u062F \u0627\u0644\u0648\u0642\u062A" : "\u23F1 Time Revenue", val: timeRev, bg: "#dcfce7", fg: "#166534" },
-      { label: ar ? "\uD83D\uDCE6 \u0625\u064A\u0631\u0627\u062F \u0627\u0644\u0637\u0644\u0628\u0627\u062A" : "\uD83D\uDCE6 Orders Revenue", val: ordersRev, bg: "#dbeafe", fg: "#1e40af" },
-      { label: ar ? "\uD83D\uDCB8 \u0627\u0644\u062E\u0635\u0648\u0645\u0627\u062A" : "\uD83D\uDCB8 Discounts", val: totalDiscount, bg: "#fee2e2", fg: "#7f1d1d" },
-      { label: ar ? "\uD83D\uDCCB \u0627\u0644\u062F\u064A\u0648\u0646" : "\uD83D\uDCCB Debts", val: totalDebtAmt, bg: "#fef9c3", fg: "#713f12" },
-    ].forEach(r => {
-      const pct = totalRev > 0 ? Math.round((r.val / totalRev) * 100) : 0;
-      s1 += `<tr>${td(r.label,{bg:r.bg,color:r.fg,bold:true})}${td(`${fmt(r.val)} \uFDFC`,{align:"center",bold:true})}${td(`${pct}%`,{align:"center",color:r.fg})}${td(mkBar(r.val,revMax),{color:r.fg,colspan:5,size:10})}</tr>`;
+    kpiDefs.forEach((k,i)=>{ const c=gc(ws1,r1,i+1); c.value=k.label; st(c,{bold:true,sz:9,fg:k.fg,bg:k.bg,al:"center"}); bd(c,k.bg); }); ws1.getRow(r1).height=20; r1++;
+    kpiDefs.forEach((k,i)=>{ const c=gc(ws1,r1,i+1); c.value=k.val; st(c,{bold:true,sz:18,fg:k.bg,bg:k.fg,al:"center"}); bd(c,C.border); }); ws1.getRow(r1).height=36; r1+=2;
+    secHdr(ws1,r1,8,ar?"💵 تفاصيل الإيراد":"💵 Revenue Breakdown","FF0F766E"); r1++;
+    colHdr(ws1,r1,[ar?"البند":"Item",ar?"المبلغ (﷼)":"Amount",ar?"النسبة":"Ratio",ar?"رسم بياني":"Visual","","","",""],"FFF1F5F9",C.text); r1++;
+    const revMax=Math.max(timeRev,ordersRev,1);
+    [{label:ar?"⏱ إيراد الوقت":"⏱ Time Rev",val:timeRev,bg:C.greenLight,fg:C.successText},{label:ar?"📦 إيراد الطلبات":"📦 Orders Rev",val:ordersRev,bg:C.blueLight,fg:"FF1E40AF"},{label:ar?"💸 الخصومات":"💸 Discounts",val:totalDiscount,bg:C.redLight,fg:C.danger},{label:ar?"📋 الديون":"📋 Debts",val:totalDebtAmt,bg:C.amberLight,fg:C.warning}].forEach(rv=>{
+      const pct=totalRev>0?Math.round((rv.val/totalRev)*100):0;
+      gc(ws1,r1,1).value=rv.label; st(gc(ws1,r1,1),{bold:true,sz:10,fg:rv.fg,bg:rv.bg,al:"right"}); bd(gc(ws1,r1,1));
+      gc(ws1,r1,2).value=`${fmt(rv.val)} ﷼`; st(gc(ws1,r1,2),{bold:true,sz:10,fg:rv.fg,bg:C.row1,al:"center"}); bd(gc(ws1,r1,2));
+      gc(ws1,r1,3).value=`${pct}%`; st(gc(ws1,r1,3),{sz:10,fg:rv.fg,bg:C.row1,al:"center"}); bd(gc(ws1,r1,3));
+      ws1.mergeCells(r1,4,r1,8); gc(ws1,r1,4).value=mkBar(rv.val,revMax,28); st(gc(ws1,r1,4),{sz:9,fg:rv.fg,bg:C.row1}); bd(gc(ws1,r1,4));
+      ws1.getRow(r1).height=18; r1++;
     });
-    s1 += `<tr>${td(ar?"\u2705 \u0627\u0644\u0635\u0627\u0641\u064A":"\u2705 Net",{bold:true,bg:"#166534",color:"#fff"})}${td(`${fmt(totalRev-totalDiscount-totalDebtAmt)} \uFDFC`,{bold:true,bg:"#166534",color:"#fff",align:"center"})}${td("",{bg:"#166534",colspan:6})}</tr>`;
-    s1 += gap(C1);
-
-    // Payment methods
-    s1 += secHeader(ar ? "\uD83D\uDCB3 \u0637\u0631\u0642 \u0627\u0644\u062F\u0641\u0639" : "\uD83D\uDCB3 Payment Methods", C1, "#1e40af");
-    s1 += `<tr>${[ar?"\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639":"Method", ar?"\u0627\u0644\u0645\u0628\u0644\u063A":"Amount", ar?"\u0627\u0644\u062C\u0644\u0633\u0627\u062A":"Sessions", ar?"\u0627\u0644\u0646\u0633\u0628\u0629":"Ratio", ar?"\u0631\u0633\u0645 \u0628\u064A\u0627\u0646\u064A":"Visual","","",""].map((h,i) => td(h, { bold: true, bg: "#f1f5f9", color: "#374151", align: i>0?"center":"" })).join("")}</tr>`;
-    const cashCnt = filtered.filter(h => h.payMethod === "cash").length;
-    const cardCnt = filtered.filter(h => h.payMethod === "card").length;
-    const xfrCnt  = filtered.filter(h => h.payMethod === "transfer").length;
-    const payMax  = Math.max(byCash, byCard, byTransfer, 1);
-    [
-      { label: ar?"\uD83D\uDCB5 \u0646\u0642\u062F":"\uD83D\uDCB5 Cash", val: byCash, cnt: cashCnt, bg: "#dcfce7", fg: "#166534" },
-      { label: ar?"\uD83D\uDCB3 \u0634\u0628\u0643\u0629":"\uD83D\uDCB3 Card", val: byCard, cnt: cardCnt, bg: "#dbeafe", fg: "#1e40af" },
-      { label: ar?"\uD83D\uDD04 \u062A\u062D\u0648\u064A\u0644":"\uD83D\uDD04 Transfer", val: byTransfer, cnt: xfrCnt, bg: "#fef9c3", fg: "#854d0e" },
-    ].forEach(r => {
-      const pct = totalRev > 0 ? Math.round((r.val / totalRev) * 100) : 0;
-      s1 += `<tr>${td(r.label,{bg:r.bg,color:r.fg,bold:true})}${td(`${fmt(r.val)} \uFDFC`,{align:"center"})}${td(fmt(r.cnt),{align:"center"})}${td(`${pct}%`,{align:"center",bold:true,color:r.fg})}${td(mkBar(r.val,payMax),{color:r.fg,colspan:4,size:10})}</tr>`;
+    ws1.mergeCells(r1,1,r1,2); gc(ws1,r1,1).value=ar?"✅ الصافي":"✅ Net"; st(gc(ws1,r1,1),{bold:true,sz:11,fg:C.white,bg:C.header2,al:"center"});
+    gc(ws1,r1,3).value=`${fmt(totalRev-totalDiscount-totalDebtAmt)} ﷼`; st(gc(ws1,r1,3),{bold:true,sz:11,fg:C.white,bg:C.header2,al:"center"});
+    ws1.mergeCells(r1,4,r1,8); st(gc(ws1,r1,4),{bg:C.header2}); ws1.getRow(r1).height=20; r1+=2;
+    secHdr(ws1,r1,8,ar?"💳 طرق الدفع":"💳 Payment Methods","FF1E40AF"); r1++;
+    colHdr(ws1,r1,[ar?"طريقة الدفع":"Method",ar?"المبلغ":"Amount",ar?"الجلسات":"Sessions",ar?"النسبة":"Ratio",ar?"رسم بياني":"Visual","","",""],"FFF1F5F9",C.text); r1++;
+    const cashCntE=filtered.filter(h=>h.payMethod==="cash").length;
+    const cardCntE=filtered.filter(h=>h.payMethod==="card").length;
+    const xfrCntE =filtered.filter(h=>h.payMethod==="transfer").length;
+    const payMaxE =Math.max(byCash,byCard,byTransfer,1);
+    [{label:ar?"💵 نقد":"💵 Cash",val:byCash,cnt:cashCntE,bg:C.greenLight,fg:C.successText},{label:ar?"💳 شبكة":"💳 Card",val:byCard,cnt:cardCntE,bg:C.blueLight,fg:"FF1E40AF"},{label:ar?"🔄 تحويل":"🔄 Transfer",val:byTransfer,cnt:xfrCntE,bg:C.amberLight,fg:C.goldText}].forEach(pm=>{
+      const pct=totalRev>0?Math.round((pm.val/totalRev)*100):0;
+      gc(ws1,r1,1).value=pm.label; st(gc(ws1,r1,1),{bold:true,sz:10,fg:pm.fg,bg:pm.bg,al:"right"}); bd(gc(ws1,r1,1));
+      gc(ws1,r1,2).value=`${fmt(pm.val)} ﷼`; st(gc(ws1,r1,2),{sz:10,fg:pm.fg,bg:C.row1,al:"center"}); bd(gc(ws1,r1,2));
+      gc(ws1,r1,3).value=fmt(pm.cnt); st(gc(ws1,r1,3),{sz:10,fg:C.text,bg:C.row1,al:"center"}); bd(gc(ws1,r1,3));
+      gc(ws1,r1,4).value=`${pct}%`; st(gc(ws1,r1,4),{bold:true,sz:10,fg:pm.fg,bg:C.row1,al:"center"}); bd(gc(ws1,r1,4));
+      ws1.mergeCells(r1,5,r1,8); gc(ws1,r1,5).value=mkBar(pm.val,payMaxE,24); st(gc(ws1,r1,5),{sz:9,fg:pm.fg,bg:C.row1}); bd(gc(ws1,r1,5));
+      ws1.getRow(r1).height=18; r1++;
     });
-    s1 += gap(C1);
-
-    // Zone performance
-    s1 += secHeader(ar ? "\uD83C\uDFC6 \u0623\u062F\u0627\u0621 \u0627\u0644\u0623\u0642\u0633\u0627\u0645" : "\uD83C\uDFC6 Zone Performance", C1, "#581c87");
-    s1 += `<tr>${[ar?"#":"#", ar?"\u0627\u0644\u0642\u0633\u0645":"Zone", ar?"\u0627\u0644\u062C\u0644\u0633\u0627\u062A":"Sessions", ar?"\u0627\u0644\u0625\u064A\u0631\u0627\u062F (\uFDFC)":"Revenue", ar?"\u0627\u0644\u0645\u062A\u0648\u0633\u0637":"Avg", ar?"\u0627\u0644\u0646\u0633\u0628\u0629":"Share", ar?"\u0631\u0633\u0645 \u0628\u064A\u0627\u0646\u064A":"Visual",""].map((h,i) => td(h, { bold: true, bg: "#f1f5f9", color: "#374151", align: i>1?"center":"" })).join("")}</tr>`;
-    const zoneMax2 = zoneSorted.length > 0 ? zoneSorted[0][1].rev : 1;
-    const zBgs = ["#fef3c7","#dcfce7","#dbeafe","#f3e8ff","#fce7f3","#ccfbf1","#ffedd5","#e0f2fe"];
-    const zFgs = ["#854d0e","#166534","#1e40af","#581c87","#9d174d","#0f766e","#9a3412","#075985"];
-    zoneSorted.forEach(([z, d], i) => {
-      const pct = totalRev > 0 ? (d.rev / totalRev * 100).toFixed(1) : "0.0";
-      const avg = d.count > 0 ? (d.rev / d.count).toFixed(1) : "0";
-      const bg  = i % 2 === 0 ? "#f8fafc" : "#ffffff";
-      s1 += `<tr>${td(i+1,{bg:zBgs[i%8],color:zFgs[i%8],bold:true,align:"center"})}${td(z,{bg,bold:i===0})}${td(fmt(d.count),{bg,align:"center"})}${td(`${fmt(d.rev)} \uFDFC`,{bg,align:"center",bold:true})}${td(`${avg} \uFDFC`,{bg,align:"center"})}${td(`${pct}%`,{bg,align:"center",color:"#581c87",bold:true})}${td(mkBar(d.rev,zoneMax2,12),{bg,color:zFgs[i%8],size:10})}${td("",{bg})}</tr>`;
+    r1++;
+    secHdr(ws1,r1,8,ar?"🏆 أداء الأقسام":"🏆 Zone Performance","FF581C87"); r1++;
+    colHdr(ws1,r1,[ar?"#":"#",ar?"القسم":"Zone",ar?"الجلسات":"Sessions",ar?"الإيراد (﷼)":"Revenue",ar?"المتوسط":"Avg",ar?"النسبة":"Share",ar?"رسم بياني":"Visual",""],"FFF1F5F9",C.text); r1++;
+    const zMax=zoneSorted.length>0?zoneSorted[0][1].rev:1;
+    const zBgs=[C.amberLight,C.greenLight,C.blueLight,C.purpleLight,"FFFCE7F3",C.tealLight,"FFFFEDD5","FFE0F2FE"];
+    const zFgs=[C.goldText,C.successText,"FF1E40AF","FF581C87","FF9D174D","FF0F766E","FF9A3412","FF075985"];
+    zoneSorted.forEach(([z,d],i)=>{
+      const pct=totalRev>0?(d.rev/totalRev*100).toFixed(1):"0.0";
+      const avg=d.count>0?(d.rev/d.count).toFixed(1):"0";
+      const bg=i%2===0?C.row1:C.row2;
+      gc(ws1,r1,1).value=i+1; st(gc(ws1,r1,1),{bold:true,sz:10,fg:zFgs[i%8],bg:zBgs[i%8],al:"center"}); bd(gc(ws1,r1,1));
+      gc(ws1,r1,2).value=z; st(gc(ws1,r1,2),{bold:i===0,sz:10,fg:C.text,bg,al:"right"}); bd(gc(ws1,r1,2));
+      gc(ws1,r1,3).value=fmt(d.count); st(gc(ws1,r1,3),{sz:10,fg:C.text,bg,al:"center"}); bd(gc(ws1,r1,3));
+      gc(ws1,r1,4).value=`${fmt(d.rev)} ﷼`; st(gc(ws1,r1,4),{bold:true,sz:10,fg:C.text,bg,al:"center"}); bd(gc(ws1,r1,4));
+      gc(ws1,r1,5).value=`${avg} ﷼`; st(gc(ws1,r1,5),{sz:10,fg:C.text,bg,al:"center"}); bd(gc(ws1,r1,5));
+      gc(ws1,r1,6).value=`${pct}%`; st(gc(ws1,r1,6),{bold:true,sz:10,fg:"FF581C87",bg,al:"center"}); bd(gc(ws1,r1,6));
+      gc(ws1,r1,7).value=mkBar(d.rev,zMax,16); st(gc(ws1,r1,7),{sz:9,fg:zFgs[i%8],bg}); bd(gc(ws1,r1,7));
+      gc(ws1,r1,8).value=""; st(gc(ws1,r1,8),{bg}); bd(gc(ws1,r1,8));
+      ws1.getRow(r1).height=18; r1++;
     });
-    s1 += `<tr>${td(ar?"\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A":"TOTAL",{bold:true,bg:"#0f172a",color:"#fff",colspan:2})}${td(fmt(totalSessions),{bold:true,bg:"#0f172a",color:"#fff",align:"center"})}${td(`${fmt(totalRev)} \uFDFC`,{bold:true,bg:"#0f172a",color:"#22c55e",align:"center"})}${td(`${avgBill.toFixed(1)} \uFDFC`,{bold:true,bg:"#0f172a",color:"#fff",align:"center"})}${td("100%",{bold:true,bg:"#0f172a",color:"#fff",align:"center"})}${td("",{bg:"#0f172a",colspan:2})}</tr>`;
+    ws1.mergeCells(r1,1,r1,2); gc(ws1,r1,1).value=ar?"الإجمالي":"TOTAL"; st(gc(ws1,r1,1),{bold:true,sz:10,fg:C.white,bg:C.headerDark,al:"center"});
+    gc(ws1,r1,3).value=fmt(totalSessions); st(gc(ws1,r1,3),{bold:true,sz:10,fg:C.white,bg:C.headerDark,al:"center"});
+    gc(ws1,r1,4).value=`${fmt(totalRev)} ﷼`; st(gc(ws1,r1,4),{bold:true,sz:10,fg:"FF22C55E",bg:C.headerDark,al:"center"});
+    gc(ws1,r1,5).value=`${avgBill.toFixed(1)} ﷼`; st(gc(ws1,r1,5),{bold:true,sz:10,fg:C.white,bg:C.headerDark,al:"center"});
+    gc(ws1,r1,6).value="100%"; st(gc(ws1,r1,6),{bold:true,sz:10,fg:C.white,bg:C.headerDark,al:"center"});
+    ws1.mergeCells(r1,7,r1,8); st(gc(ws1,r1,7),{bg:C.headerDark}); ws1.getRow(r1).height=20; r1+=2;
+    ws1.mergeCells(r1,1,r1,8); gc(ws1,r1,1).value=ar?`تم التصدير بتاريخ ${exportDate} — مركز الصملة للترفيه`:`Exported ${exportDate} — ALSAMLAH Entertainment Center`;
+    st(gc(ws1,r1,1),{sz:9,fg:"FF94A3B8",bg:C.headerDark,al:"center"}); ws1.getRow(r1).height=16;
 
-    // Item sales
-    if (itemSales.length > 0) {
-      s1 += gap(C1);
-      s1 += secHeader(ar ? "\uD83C\uDF7D\uFE0F \u0645\u0628\u064A\u0639\u0627\u062A \u0627\u0644\u0623\u0635\u0646\u0627\u0641" : "\uD83C\uDF7D\uFE0F Item Sales", C1, "#075985");
-      s1 += `<tr>${[ar?"#":"#", ar?"\u0627\u0644\u0635\u0646\u0641":"Item", ar?"\u0627\u0644\u0643\u0645\u064A\u0629":"Qty", ar?"\u0627\u0644\u0625\u064A\u0631\u0627\u062F":"Revenue", ar?"\u0633\u0639\u0631 \u0627\u0644\u0648\u062D\u062F\u0629":"Avg Price", ar?"\u0631\u0633\u0645 \u0628\u064A\u0627\u0646\u064A":"Visual","",""].map((h,i) => td(h,{bold:true,bg:"#f1f5f9",color:"#374151",align:i>1?"center":""})).join("")}</tr>`;
-      const iMax = itemSales.length > 0 ? itemSales[0].qty : 1;
-      itemSales.slice(0, 15).forEach((it, i) => {
-        const bg  = i % 2 === 0 ? "#f8fafc" : "#ffffff";
-        const avgP = it.qty > 0 ? (it.rev / it.qty).toFixed(1) : "0";
-        s1 += `<tr>${td(i+1,{bg,align:"center",color:"#6b7280",size:10})}${td(`${it.icon} ${it.name}`,{bg,size:10})}${td(fmt(it.qty),{bg,align:"center",bold:true,size:10})}${td(`${fmt(it.rev)} \uFDFC`,{bg,align:"center",size:10})}${td(`${avgP} \uFDFC`,{bg,align:"center",size:10})}${td(mkBar(it.qty,iMax,12),{bg,color:"#075985",size:10})}${td("",{bg,colspan:2})}</tr>`;
-      });
+    // ═══════ SHEET 2: Summary ═══════
+    const ws2=wb.addWorksheet(ar?"ملخص":"Summary");
+    ws2.views=[{rightToLeft:ar}];
+    ws2.columns=[{width:6},{width:28},{width:14},{width:16},{width:16},{width:14}];
+    ws2.mergeCells(1,1,1,6); gc(ws2,1,1).value=ar?`📋 ملخص التقرير — ${periodLabel}`:`📋 Summary — ${periodLabel}`;
+    st(gc(ws2,1,1),{bold:true,sz:15,fg:C.white,bg:C.headerDark,al:"center"}); ws2.getRow(1).height=28;
+    let r2=3;
+    const s2H=(title:string,bg:string)=>{secHdr(ws2,r2,6,title,bg);r2++;};
+    s2H(ar?"🏆 الإيراد حسب القسم":"🏆 Revenue by Zone","FF1E40AF");
+    colHdr(ws2,r2,[ar?"#":"#",ar?"القسم":"Zone",ar?"الجلسات":"Sessions",ar?"الإيراد (﷼)":"Revenue",ar?"متوسط الفاتورة":"Avg Bill",ar?"% من الإجمالي":"% Share"],"FF1E40AF"); r2++;
+    zoneSorted.forEach(([z,d],i)=>{
+      const pct=totalRev>0?(d.rev/totalRev*100).toFixed(1):"0.0"; const avg=d.count>0?(d.rev/d.count).toFixed(1):"0";
+      const bg=i===0?C.greenLight:i%2===0?C.row1:C.row2;
+      [i+1,z,d.count,`${fmt(d.rev)} ﷼`,`${avg} ﷼`,`${pct}%`].forEach((v,ci)=>{ gc(ws2,r2,ci+1).value=v; st(gc(ws2,r2,ci+1),{bold:ci===1&&i===0,sz:10,fg:ci===3&&i===0?C.successText:C.text,bg,al:ci>1?"center":"right"}); bd(gc(ws2,r2,ci+1)); });
+      ws2.getRow(r2).height=18; r2++;
+    });
+    ws2.mergeCells(r2,1,r2,2);
+    [ar?"الإجمالي":"TOTAL","",fmt(totalSessions),`${fmt(totalRev)} ﷼`,`${avgBill.toFixed(1)} ﷼`,"100%"].forEach((v,ci)=>{ if(ci===1)return; gc(ws2,r2,ci+1).value=v; st(gc(ws2,r2,ci+1),{bold:true,sz:10,fg:ci===3?"FF22C55E":C.white,bg:C.headerDark,al:"center"}); });
+    ws2.getRow(r2).height=20; r2+=2;
+    if (isManager && Object.keys(byCashier).length>0) {
+      s2H(ar?"👤 الأداء حسب الكاشير":"👤 Performance by Cashier","FF0F766E");
+      colHdr(ws2,r2,[ar?"الكاشير":"Cashier",ar?"الجلسات":"Sessions",ar?"الإيراد":"Revenue",ar?"المتوسط":"Avg Bill",ar?"% المساهمة":"Contribution",""],"FF0F766E"); r2++;
+      Object.entries(byCashier).sort((a,b)=>b[1].rev-a[1].rev).forEach(([c,d],i)=>{
+        const pct=totalRev>0?(d.rev/totalRev*100).toFixed(1):"0.0"; const avg=d.count>0?(d.rev/d.count).toFixed(1):"0";
+        const bg=i%2===0?"FFF0FDF4":C.row2;
+        [c,d.count,`${fmt(d.rev)} ﷼`,`${avg} ﷼`,`${pct}%`,""].forEach((v,ci)=>{ gc(ws2,r2,ci+1).value=v; st(gc(ws2,r2,ci+1),{bold:ci===2&&i===0,sz:10,fg:ci===2?"FF0F766E":C.text,bg,al:ci>0?"center":"right"}); bd(gc(ws2,r2,ci+1)); });
+        ws2.getRow(r2).height=18; r2++;
+      }); r2++;
     }
-
-    s1 += gap(C1);
-    s1 += `<tr>${td(ar?`\u062A\u0645 \u0627\u0644\u062A\u0635\u062F\u064A\u0631 \u0628\u062A\u0627\u0631\u064A\u062E ${exportDate} \u2014 \u0645\u0631\u0643\u0632 \u0627\u0644\u0635\u0645\u0644\u0629 \u0644\u0644\u062A\u0631\u0641\u064A\u0647`:`Exported ${exportDate} \u2014 ALSAMLAH Entertainment Center`,{colspan:C1,color:"#94a3b8",size:10,bg:"#0f172a",align:"center"})}</tr>`;
-    s1 += `</table></div>`;
-
-    // ═══════════════════════════════════════════
-    // SHEET 2 — SUMMARY
-    // ═══════════════════════════════════════════
-    const C2 = 6;
-    let s2 = `<div id="sheet2"><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;direction:rtl;font-family:Arial">`;
-    s2 += `<tr>${td(ar?`\uD83D\uDCCB \u0645\u0644\u062E\u0635 \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u2014 ${periodLabel}`:` \uD83D\uDCCB Summary \u2014 ${periodLabel}`,{colspan:C2,bold:true,bg:"#0f172a",color:"#fff",size:15,pad:14})}</tr>`;
-    s2 += gap(C2);
-
-    // Zone table
-    s2 += secHeader(ar?"\uD83C\uDFC6 \u0627\u0644\u0625\u064A\u0631\u0627\u062F \u062D\u0633\u0628 \u0627\u0644\u0642\u0633\u0645":"\uD83C\uDFC6 Revenue by Zone", C2, "#1e40af");
-    s2 += `<tr>${[ar?"#":"#",ar?"\u0627\u0644\u0642\u0633\u0645":"Zone",ar?"\u0627\u0644\u062C\u0644\u0633\u0627\u062A":"Sessions",ar?"\u0627\u0644\u0625\u064A\u0631\u0627\u062F (\uFDFC)":"Revenue",ar?"\u0645\u062A\u0648\u0633\u0637 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629":"Avg Bill",ar?"% \u0645\u0646 \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A":"% Share"].map((h,i)=>td(h,{bold:true,bg:"#1e40af",color:"#fff",align:i>1?"center":""})).join("")}</tr>`;
-    zoneSorted.forEach(([z, d], i) => {
-      const pct = totalRev > 0 ? (d.rev/totalRev*100).toFixed(1) : "0.0";
-      const avg = d.count > 0 ? (d.rev/d.count).toFixed(1) : "0";
-      const bg  = i === 0 ? "#dcfce7" : i % 2 === 0 ? "#f8fafc" : "#fff";
-      s2 += `<tr>${td(i+1,{bg,align:"center",color:"#6b7280"})}${td(z,{bg,bold:i===0})}${td(fmt(d.count),{bg,align:"center"})}${td(`${fmt(d.rev)} \uFDFC`,{bg,align:"center",bold:true,color:i===0?"#166534":"#374151"})}${td(`${avg} \uFDFC`,{bg,align:"center"})}${td(`${pct}%`,{bg,align:"center",bold:i===0,color:"#1e40af"})}</tr>`;
-    });
-    s2 += `<tr>${td(ar?"\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A":"TOTAL",{bold:true,bg:"#0f172a",color:"#fff",colspan:2})}${td(fmt(totalSessions),{bold:true,bg:"#0f172a",color:"#fff",align:"center"})}${td(`${fmt(totalRev)} \uFDFC`,{bold:true,bg:"#0f172a",color:"#22c55e",align:"center"})}${td(`${avgBill.toFixed(1)} \uFDFC`,{bold:true,bg:"#0f172a",color:"#fff",align:"center"})}${td("100%",{bold:true,bg:"#0f172a",color:"#fff",align:"center"})}</tr>`;
-    s2 += gap(C2);
-
-    // Cashier table
-    if (isManager && Object.keys(byCashier).length > 0) {
-      s2 += secHeader(ar?"\uD83D\uDC64 \u0627\u0644\u0623\u062F\u0627\u0621 \u062D\u0633\u0628 \u0627\u0644\u0643\u0627\u0634\u064A\u0631":"\uD83D\uDC64 Performance by Cashier", C2, "#0f766e");
-      s2 += `<tr>${[ar?"\u0627\u0644\u0643\u0627\u0634\u064A\u0631":"Cashier",ar?"\u0627\u0644\u062C\u0644\u0633\u0627\u062A":"Sessions",ar?"\u0627\u0644\u0625\u064A\u0631\u0627\u062F":"Revenue",ar?"\u0627\u0644\u0645\u062A\u0648\u0633\u0637":"Avg Bill",ar?"% \u0627\u0644\u0645\u0633\u0627\u0647\u0645\u0629":"Contribution",""].map(h=>td(h,{bold:true,bg:"#0f766e",color:"#fff",align:"center"})).join("")}</tr>`;
-      Object.entries(byCashier).sort((a,b)=>b[1].rev-a[1].rev).forEach(([c, d], i) => {
-        const pct = totalRev > 0 ? (d.rev/totalRev*100).toFixed(1) : "0.0";
-        const avg = d.count > 0 ? (d.rev/d.count).toFixed(1) : "0";
-        const bg  = i % 2 === 0 ? "#f0fdfa" : "#fff";
-        s2 += `<tr>${td(c,{bg,bold:i===0})}${td(fmt(d.count),{bg,align:"center"})}${td(`${fmt(d.rev)} \uFDFC`,{bg,align:"center",bold:true,color:"#0f766e"})}${td(`${avg} \uFDFC`,{bg,align:"center"})}${td(`${pct}%`,{bg,align:"center"})}${td("",{bg})}</tr>`;
-      });
-      s2 += gap(C2);
+    if (topCust.length>0) {
+      s2H(ar?"⭐ أكثر العملاء إنفاقاً":"⭐ Top Customers","FF854D0E");
+      colHdr(ws2,r2,[ar?"#":"#",ar?"العميل":"Customer",ar?"الزيارات":"Visits",ar?"إجمالي الإنفاق":"Total Spend",ar?"متوسط الزيارة":"Avg/Visit",""],"FFF3E8F9",C.goldText); r2++;
+      const medals=["🥇","🥈","🥉"];
+      topCust.forEach(([name,d],i)=>{
+        const avg=d.count>0?(d.rev/d.count).toFixed(1):"0";
+        const bg=i===0?C.amberLight:i===1?"FFF3F4F6":i===2?"FFFFF7ED":i%2===0?"FFFEFCE8":C.row2;
+        [medals[i]??(i+1),name,d.count,`${fmt(d.rev)} ﷼`,`${avg} ﷼`,""].forEach((v,ci)=>{ gc(ws2,r2,ci+1).value=v; st(gc(ws2,r2,ci+1),{bold:i<3,sz:10,fg:ci===3&&i===0?C.goldText:C.text,bg,al:ci>1?"center":"right"}); bd(gc(ws2,r2,ci+1)); });
+        ws2.getRow(r2).height=18; r2++;
+      }); r2++;
     }
+    s2H(ar?"🔴 ملخص الديون":"🔴 Debts Summary","FF7F1D1D");
+    const totAllDebts2=debts.reduce((s,d)=>s+d.amount,0); const totPaid2=debts.reduce((s,d)=>s+d.paidAmount,0);
+    [ar?"إجمالي المدينين":"Total Debtors",fmt(unpaidDebts.length),ar?"إجمالي الديون":"Total Debt",`${fmt(totAllDebts2)} ﷼`,ar?"المدفوع":"Paid",`${fmt(totPaid2)} ﷼`].forEach((v,ci)=>{ gc(ws2,r2,ci+1).value=v; st(gc(ws2,r2,ci+1),{bold:ci%2===0,sz:10,fg:ci%2===0?"FF7F1D1D":C.text,bg:ci%2===0?C.redLight:C.row1,al:ci%2===0?"right":"center"}); bd(gc(ws2,r2,ci+1)); });
+    ws2.getRow(r2).height=18; r2++;
+    ws2.mergeCells(r2,1,r2,4); gc(ws2,r2,1).value=ar?"المتبقي غير المدفوع":"Remaining Unpaid"; st(gc(ws2,r2,1),{bold:true,sz:10,fg:C.white,bg:"FF7F1D1D",al:"center"});
+    ws2.mergeCells(r2,5,r2,6); gc(ws2,r2,5).value=`${fmt(totalUnpaidDebt)} ﷼`; st(gc(ws2,r2,5),{bold:true,sz:10,fg:C.white,bg:"FF7F1D1D",al:"center"}); ws2.getRow(r2).height=20; r2+=2;
+    ws2.mergeCells(r2,1,r2,6); gc(ws2,r2,1).value=ar?`مركز الصملة — ${exportDate}`:`ALSAMLAH — ${exportDate}`; st(gc(ws2,r2,1),{sz:9,fg:"FF94A3B8",bg:C.headerDark,al:"center"}); ws2.getRow(r2).height=16;
 
-    // Top customers
-    if (topCust.length > 0) {
-      s2 += secHeader(ar?"\u2B50 \u0623\u0643\u062B\u0631 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0625\u0646\u0641\u0627\u0642\u064B\u0627":"\u2B50 Top Customers", C2, "#854d0e");
-      s2 += `<tr>${[ar?"#":"#",ar?"\u0627\u0644\u0639\u0645\u064A\u0644":"Customer",ar?"\u0627\u0644\u0632\u064A\u0627\u0631\u0627\u062A":"Visits",ar?"\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0625\u0646\u0641\u0627\u0642":"Total Spend",ar?"\u0645\u062A\u0648\u0633\u0637 \u0627\u0644\u0632\u064A\u0627\u0631\u0629":"Avg/Visit",""].map((h,i)=>td(h,{bold:true,bg:"#fef3c7",color:"#854d0e",align:i>1?"center":""})).join("")}</tr>`;
-      const medals = ["\uD83E\uDD47","\uD83E\uDD48","\uD83E\uDD49"];
-      topCust.forEach(([name, d], i) => {
-        const avg = d.count > 0 ? (d.rev/d.count).toFixed(1) : "0";
-        const bg  = i === 0 ? "#fef9c3" : i === 1 ? "#f3f4f6" : i === 2 ? "#fff7ed" : i % 2 === 0 ? "#fefce8" : "#fff";
-        s2 += `<tr>${td(medals[i]??(i+1),{bg,align:"center",bold:i<3})}${td(name,{bg,bold:i<3})}${td(fmt(d.count),{bg,align:"center"})}${td(`${fmt(d.rev)} \uFDFC`,{bg,align:"center",bold:i<3,color:i===0?"#854d0e":"#374151"})}${td(`${avg} \uFDFC`,{bg,align:"center"})}${td("",{bg})}</tr>`;
-      });
-      s2 += gap(C2);
-    }
-
-    // Debts summary
-    s2 += secHeader(ar?"\uD83D\uDD34 \u0645\u0644\u062E\u0635 \u0627\u0644\u062F\u064A\u0648\u0646":"\uD83D\uDD34 Debts Summary", C2, "#7f1d1d");
-    const totAllDebts = debts.reduce((s,d)=>s+d.amount,0);
-    const totPaid     = debts.reduce((s,d)=>s+d.paidAmount,0);
-    s2 += `<tr>${td(ar?"\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u062F\u064A\u0646\u064A\u0646":"Total Debtors",{bold:true,bg:"#fee2e2",color:"#7f1d1d"})}${td(fmt(unpaidDebts.length),{align:"center",bold:true})}${td(ar?"\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062F\u064A\u0648\u0646":"Total Debt",{bold:true,bg:"#fee2e2",color:"#7f1d1d"})}${td(`${fmt(totAllDebts)} \uFDFC`,{align:"center",bold:true})}${td(ar?"\u0627\u0644\u0645\u062F\u0641\u0648\u0639":"Paid",{bold:true,bg:"#dcfce7",color:"#166534"})}${td(`${fmt(totPaid)} \uFDFC`,{align:"center",bold:true,color:"#166534"})}</tr>`;
-    s2 += `<tr>${td(ar?"\u0627\u0644\u0645\u062A\u0628\u0642\u064A \u063A\u064A\u0631 \u0627\u0644\u0645\u062F\u0641\u0648\u0639":"Remaining Unpaid",{bold:true,bg:"#7f1d1d",color:"#fff",colspan:4})}${td(`${fmt(totalUnpaidDebt)} \uFDFC`,{bold:true,bg:"#7f1d1d",color:"#fff",align:"center",colspan:2})}</tr>`;
-
-    s2 += gap(C2);
-    s2 += `<tr>${td(ar?`\u0645\u0631\u0643\u0632 \u0627\u0644\u0635\u0645\u0644\u0629 \u2014 ${exportDate}`:`ALSAMLAH \u2014 ${exportDate}`,{colspan:C2,color:"#94a3b8",size:10,bg:"#0f172a",align:"center"})}</tr>`;
-    s2 += `</table></div>`;
-
-    // ═══════════════════════════════════════════
-    // SHEET 3 — DETAILED
-    // ═══════════════════════════════════════════
-    const C3 = 18;
-    let s3 = `<div id="sheet3"><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;direction:rtl;font-family:Arial">`;
-    s3 += `<tr>${td(ar?`\uD83D\uDCDD \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A \u2014 ${periodLabel} (${totalSessions} ${ar?"\u062C\u0644\u0633\u0629":"sessions"})`:` \uD83D\uDCDD Detailed \u2014 ${periodLabel} (${totalSessions} sessions)`,{colspan:C3,bold:true,bg:"#0f172a",color:"#fff",size:14,pad:12})}</tr>`;
-
-    const dh = [
-      ar?"#":"#", ar?"\u0631\u0642\u0645 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629":"Invoice#",
-      ar?"\u0627\u0644\u062A\u0627\u0631\u064A\u062E":"Date", ar?"\u0627\u0644\u0628\u062F\u0627\u064A\u0629":"Start", ar?"\u0627\u0644\u0646\u0647\u0627\u064A\u0629":"End", ar?"\u0627\u0644\u0645\u062F\u0629":"Duration",
-      ar?"\u0627\u0644\u063A\u0631\u0641\u0629/\u0627\u0644\u0639\u0646\u0635\u0631":"Item", ar?"\u0627\u0644\u0642\u0633\u0645":"Zone",
-      ar?"\u0627\u0644\u0639\u0645\u064A\u0644":"Customer", ar?"\u0627\u0644\u062C\u0648\u0627\u0644":"Phone",
-      ar?"\u0627\u0644\u0644\u0627\u0639\u0628\u0648\u0646":"Players",
-      ar?"\u0625\u064A\u0631\u0627\u062F \u0627\u0644\u0648\u0642\u062A":"Time Rev", ar?"\u0627\u0644\u0637\u0644\u0628\u0627\u062A":"Orders",
-      ar?"\u062E\u0635\u0645":"Disc", ar?"\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A":"Total",
-      ar?"\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639":"Payment", ar?"\u0627\u0644\u0643\u0627\u0634\u064A\u0631":"Cashier", ar?"\u0627\u0644\u062D\u0627\u0644\u0629":"Status",
-    ];
-    s3 += `<tr>${dh.map(h=>td(h,{bold:true,bg:"#1e293b",color:"#e2e8f0",align:"center",size:10})).join("")}</tr>`;
-
-    const detailRows = [...filtered].sort((a,b)=>b.endTime-a.endTime);
-    let grandTotal = 0;
-    detailRows.forEach((h, i) => {
-      const dEnd   = new Date(h.endTime);
-      const dStart = new Date(h.startTime);
-      const bg     = i % 2 === 0 ? "#f8fafc" : "#fff";
-      const payBg  = h.payMethod === "cash" ? "#dcfce7" : h.payMethod === "card" ? "#dbeafe" : "#fef9c3";
-      const payFg  = h.payMethod === "cash" ? "#166534" : h.payMethod === "card" ? "#1e40af" : "#854d0e";
-      const payLbl = h.payMethod === "cash" ? (ar?"\uD83D\uDCB5 \u0646\u0642\u062F":"\uD83D\uDCB5 Cash") : h.payMethod === "card" ? (ar?"\uD83D\uDCB3 \u0634\u0628\u0643\u0629":"\uD83D\uDCB3 Card") : (ar?"\uD83D\uDD04 \u062A\u062D\u0648\u064A\u0644":"\uD83D\uDD04 Transfer");
-      const stBg   = !h.status||h.status==="paid" ? "#dcfce7" : "#fef9c3";
-      const stFg   = !h.status||h.status==="paid" ? "#166534" : "#854d0e";
-      const stLbl  = !h.status||h.status==="paid" ? (ar?"\u2705 \u0645\u062F\u0641\u0648\u0639":"\u2705 Paid") : (ar?"\u23F8 \u0645\u0648\u0642\u0648\u0641":"\u23F8 Held");
-      grandTotal  += h.total;
-      s3 += `<tr>`;
-      s3 += td(i+1,{bg,align:"center",color:"#9ca3af",size:10});
-      s3 += td(h.invoiceNo??"-",{bg,align:"center",bold:true,color:"#6366f1",size:10});
-      s3 += td(dEnd.toLocaleDateString("ar-SA"),{bg,align:"center",size:10});
-      s3 += td(dStart.toLocaleTimeString("ar-SA",{hour:"2-digit",minute:"2-digit",hour12:true}),{bg,align:"center",size:10});
-      s3 += td(dEnd.toLocaleTimeString("ar-SA",{hour:"2-digit",minute:"2-digit",hour12:true}),{bg,align:"center",size:10});
-      s3 += td(fmtD(h.duration),{bg,align:"center",size:10});
-      s3 += td(h.itemName,{bg,size:10});
-      s3 += td(h.zoneName,{bg,size:10,color:"#6366f1"});
-      s3 += td(h.customerName||(ar?"\u0632\u0627\u0626\u0631":"Visitor"),{bg,size:10});
-      s3 += td(h.phone??"-",{bg,size:10,color:"#6b7280"});
-      s3 += td(h.playerCount||1,{bg,align:"center",size:10});
-      s3 += td(`${fmt(h.timePrice)} \uFDFC`,{bg,align:"center",size:10});
-      s3 += td(`${fmt(h.ordersTotal)} \uFDFC`,{bg,align:"center",size:10});
-      s3 += td(h.discount?`${fmt(h.discount)} \uFDFC`:"-",{bg,align:"center",size:10,color:h.discount?"#dc2626":"#9ca3af"});
-      s3 += td(`${fmt(h.total)} \uFDFC`,{bg,align:"center",bold:true,size:10,color:"#166534"});
-      s3 += td(payLbl,{bg:payBg,color:payFg,align:"center",bold:true,size:10});
-      s3 += td(h.cashier||"-",{bg,size:10});
-      s3 += td(stLbl,{bg:stBg,color:stFg,align:"center",bold:true,size:10});
-      s3 += `</tr>`;
+    // ═══════ SHEET 3: Invoice Details ═══════
+    const ws3=wb.addWorksheet(ar?"تفاصيل الفواتير":"Invoice Details");
+    ws3.views=[{rightToLeft:ar}];
+    ws3.columns=[{width:5},{width:12},{width:12},{width:10},{width:10},{width:10},{width:18},{width:14},{width:16},{width:13},{width:8},{width:12},{width:12},{width:10},{width:12},{width:14},{width:12},{width:10}];
+    ws3.mergeCells(1,1,1,18); gc(ws3,1,1).value=ar?`📝 تفاصيل الفواتير — ${periodLabel} (${totalSessions} فاتورة)`:`📝 Invoice Details — ${periodLabel} (${totalSessions} invoices)`;
+    st(gc(ws3,1,1),{bold:true,sz:14,fg:C.white,bg:C.headerDark,al:"center"}); ws3.getRow(1).height=26;
+    [ar?"#":"#",ar?"رقم الفاتورة":"Invoice#",ar?"التاريخ":"Date",ar?"البداية":"Start",ar?"النهاية":"End",ar?"المدة":"Duration",ar?"الغرفة":"Item",ar?"القسم":"Zone",ar?"العميل":"Customer",ar?"الجوال":"Phone",ar?"اللاعبون":"Players",ar?"إيراد الوقت":"Time Rev",ar?"الطلبات":"Orders",ar?"خصم":"Disc",ar?"الإجمالي":"Total",ar?"طريقة الدفع":"Payment",ar?"الكاشير":"Cashier",ar?"الحالة":"Status"].forEach((h,i)=>{ gc(ws3,2,i+1).value=h; st(gc(ws3,2,i+1),{bold:true,sz:9,fg:"FFE2E8F0",bg:"FF1E293B",al:"center"}); bd(gc(ws3,2,i+1),"FF1E293B"); });
+    ws3.getRow(2).height=18;
+    let r3=3; const detailRows=[...filtered].sort((a,b)=>b.endTime-a.endTime); let grandTotal=0;
+    detailRows.forEach((h,i)=>{
+      const dEnd=new Date(h.endTime); const dStart=new Date(h.startTime);
+      const bg=i%2===0?C.row1:C.row2;
+      const payBg=h.payMethod==="cash"?C.greenLight:h.payMethod==="card"?C.blueLight:C.amberLight;
+      const payFg=h.payMethod==="cash"?C.successText:h.payMethod==="card"?"FF1E40AF":C.goldText;
+      const payLbl=h.payMethod==="cash"?(ar?"💵 نقد":"💵 Cash"):h.payMethod==="card"?(ar?"💳 شبكة":"💳 Card"):(ar?"🔄 تحويل":"🔄 Transfer");
+      const stBg=!h.status||h.status==="paid"?C.greenLight:C.amberLight;
+      const stFg=!h.status||h.status==="paid"?C.successText:C.goldText;
+      const stLbl=!h.status||h.status==="paid"?(ar?"✅ مدفوع":"✅ Paid"):(ar?"⏸ معلق":"⏸ Held");
+      grandTotal+=h.total;
+      const corrTag=h.correction?" ✏️":"";
+      const vals=[i+1,(h.invoiceNo??"-")+corrTag,dEnd.toLocaleDateString("ar-SA"),dStart.toLocaleTimeString("ar-SA",{hour:"2-digit",minute:"2-digit",hour12:true}),dEnd.toLocaleTimeString("ar-SA",{hour:"2-digit",minute:"2-digit",hour12:true}),fmtD(h.duration),h.itemName,h.zoneName,h.customerName||(ar?"زائر":"Visitor"),h.phone??"-",h.playerCount||1,`${fmt(h.timePrice)} ﷼`,`${fmt(h.ordersTotal)} ﷼`,h.discount?`${fmt(h.discount)} ﷼`:"-",`${fmt(h.total)} ﷼`+(h.correction?` → ${fmt(h.correction.correctedTotal)} ﷼`:""),payLbl,h.cashier||"-",stLbl];
+      const fgs=[C.textMuted,"FF6366F1",C.text,C.text,C.text,C.text,C.text,"FF6366F1",C.text,C.textMuted,C.text,C.text,C.text,h.discount?C.danger:C.textMuted,C.successText,payFg,C.text,stFg];
+      const bgs=[bg,bg,bg,bg,bg,bg,bg,bg,bg,bg,bg,bg,bg,bg,h.correction?C.amberLight:bg,payBg,bg,stBg];
+      vals.forEach((v,ci)=>{ gc(ws3,r3,ci+1).value=v; st(gc(ws3,r3,ci+1),{bold:ci===14,sz:9,fg:fgs[ci],bg:bgs[ci],al:"center"}); bd(gc(ws3,r3,ci+1)); });
+      ws3.getRow(r3).height=17; r3++;
     });
+    const totTR=filtered.reduce((s,h)=>s+h.timePrice,0); const totOR=filtered.reduce((s,h)=>s+h.ordersTotal,0); const totDR=filtered.reduce((s,h)=>s+(h.discount||0),0);
+    ws3.mergeCells(r3,1,r3,11); gc(ws3,r3,1).value=ar?"الإجمالي الكلي":"GRAND TOTAL"; st(gc(ws3,r3,1),{bold:true,sz:10,fg:C.white,bg:C.headerDark,al:"center"});
+    gc(ws3,r3,12).value=`${fmt(totTR)} ﷼`; st(gc(ws3,r3,12),{bold:true,sz:10,fg:"FF22C55E",bg:C.headerDark,al:"center"});
+    gc(ws3,r3,13).value=`${fmt(totOR)} ﷼`; st(gc(ws3,r3,13),{bold:true,sz:10,fg:"FF22C55E",bg:C.headerDark,al:"center"});
+    gc(ws3,r3,14).value=`${fmt(totDR)} ﷼`; st(gc(ws3,r3,14),{bold:true,sz:10,fg:"FFEF4444",bg:C.headerDark,al:"center"});
+    gc(ws3,r3,15).value=`${fmt(grandTotal)} ﷼`; st(gc(ws3,r3,15),{bold:true,sz:12,fg:"FF22C55E",bg:C.header2,al:"center"});
+    ws3.mergeCells(r3,16,r3,18); st(gc(ws3,r3,16),{bg:C.headerDark}); ws3.getRow(r3).height=20; r3+=2;
+    ws3.mergeCells(r3,1,r3,18); gc(ws3,r3,1).value=ar?`مركز الصملة — تصدير ${exportDate}`:`ALSAMLAH — Export ${exportDate}`; st(gc(ws3,r3,1),{sz:9,fg:"FF94A3B8",bg:C.headerDark,al:"center"}); ws3.getRow(r3).height=16;
 
-    // Grand total row
-    const totTimeRev   = filtered.reduce((s,h)=>s+h.timePrice,0);
-    const totOrdersRev = filtered.reduce((s,h)=>s+h.ordersTotal,0);
-    const totDisc      = filtered.reduce((s,h)=>s+(h.discount||0),0);
-    s3 += `<tr>${td(ar?"\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0643\u0644\u064A":"GRAND TOTAL",{bold:true,bg:"#0f172a",color:"#fff",colspan:11,align:"center"})}${td(`${fmt(totTimeRev)} \uFDFC`,{bold:true,bg:"#0f172a",color:"#22c55e",align:"center"})}${td(`${fmt(totOrdersRev)} \uFDFC`,{bold:true,bg:"#0f172a",color:"#22c55e",align:"center"})}${td(`${fmt(totDisc)} \uFDFC`,{bold:true,bg:"#0f172a",color:"#ef4444",align:"center"})}${td(`${fmt(grandTotal)} \uFDFC`,{bold:true,bg:"#166534",color:"#fff",align:"center",size:12})}${td("",{bg:"#0f172a",colspan:3})}</tr>`;
+    // ═══════ SHEET 4: Analytics ═══════
+    const ws4=wb.addWorksheet(ar?"تحليل الأصناف والأوقات":"Analytics");
+    ws4.views=[{rightToLeft:ar}];
+    ws4.columns=[{width:6},{width:28},{width:12},{width:14},{width:14},{width:24},{width:10}];
+    ws4.mergeCells(1,1,1,7); gc(ws4,1,1).value=ar?`🔬 تحليل الأصناف والأوقات — ${periodLabel}`:`🔬 Analytics — ${periodLabel}`;
+    st(gc(ws4,1,1),{bold:true,sz:15,fg:C.white,bg:C.headerDark,al:"center"}); ws4.getRow(1).height=28;
+    let r4=3;
+    const s4H=(title:string,bg:string)=>{secHdr(ws4,r4,7,title,bg);r4++;};
+    if (itemSales.length>0) {
+      s4H(ar?"🍽️ مبيعات الأصناف (الكوفي شوب)":"🍽️ Menu Item Sales","FF075985");
+      colHdr(ws4,r4,[ar?"#":"#",ar?"الصنف":"Item",ar?"الكمية":"Qty",ar?"الإيراد (﷼)":"Revenue",ar?"متوسط السعر":"Avg Price",ar?"رسم بياني":"Visual Bar",""],"FF075985"); r4++;
+      const iMax=itemSales[0].qty;
+      itemSales.slice(0,20).forEach((it,i)=>{
+        const avg=it.qty>0?(it.rev/it.qty).toFixed(1):"0"; const bg=i%2===0?"FFE0F2FE":C.row2;
+        [i+1,`${it.icon} ${it.name}`,it.qty,`${fmt(it.rev)} ﷼`,`${avg} ﷼`,mkBar(it.qty,iMax,28),""].forEach((v,ci)=>{ gc(ws4,r4,ci+1).value=v; st(gc(ws4,r4,ci+1),{bold:ci===2,sz:10,fg:ci===5?"FF075985":C.text,bg,al:ci>1?"center":"right"}); bd(gc(ws4,r4,ci+1)); });
+        ws4.getRow(r4).height=17; r4++;
+      });
+      const totQ=itemSales.reduce((s,it)=>s+it.qty,0); const totR4=itemSales.reduce((s,it)=>s+it.rev,0);
+      ws4.mergeCells(r4,1,r4,2); gc(ws4,r4,1).value=ar?"الإجمالي":"TOTAL"; st(gc(ws4,r4,1),{bold:true,sz:10,fg:C.white,bg:"FF075985",al:"center"});
+      gc(ws4,r4,3).value=fmt(totQ); st(gc(ws4,r4,3),{bold:true,sz:10,fg:C.white,bg:"FF075985",al:"center"});
+      gc(ws4,r4,4).value=`${fmt(totR4)} ﷼`; st(gc(ws4,r4,4),{bold:true,sz:10,fg:"FF22C55E",bg:"FF075985",al:"center"});
+      ws4.mergeCells(r4,5,r4,7); st(gc(ws4,r4,5),{bg:"FF075985"}); ws4.getRow(r4).height=20; r4+=2;
+    }
+    const roomMap:Record<string,{sessions:number;rev:number;dur:number}>={};
+    filtered.forEach(h=>{ if(!roomMap[h.itemName])roomMap[h.itemName]={sessions:0,rev:0,dur:0}; roomMap[h.itemName].sessions++; roomMap[h.itemName].rev+=h.total; roomMap[h.itemName].dur+=h.duration; });
+    const roomSorted=Object.entries(roomMap).sort((a,b)=>b[1].sessions-a[1].sessions);
+    if (roomSorted.length>0) {
+      s4H(ar?"🎮 أداء الغرف والعناصر":"🎮 Room / Item Performance",C.header2);
+      colHdr(ws4,r4,[ar?"#":"#",ar?"الغرفة / العنصر":"Room / Item",ar?"الجلسات":"Sessions",ar?"الإيراد (﷼)":"Revenue",ar?"متوسط المدة":"Avg Duration",ar?"رسم بياني":"Visual",""],C.header2); r4++;
+      const rMax=roomSorted[0][1].sessions;
+      roomSorted.slice(0,20).forEach(([name,d],i)=>{
+        const avgDur=d.sessions>0?fmtD(Math.round(d.dur/d.sessions)):"0"; const bg=i%2===0?C.greenLight:C.row2;
+        [i+1,name,d.sessions,`${fmt(d.rev)} ﷼`,avgDur,mkBar(d.sessions,rMax,28),""].forEach((v,ci)=>{ gc(ws4,r4,ci+1).value=v; st(gc(ws4,r4,ci+1),{bold:ci===2,sz:10,fg:ci===5?C.successText:C.text,bg,al:ci>1?"center":"right"}); bd(gc(ws4,r4,ci+1)); });
+        ws4.getRow(r4).height=17; r4++;
+      }); r4++;
+    }
+    const hourMap:Record<number,number>={};
+    for(let h=0;h<24;h++) hourMap[h]=0;
+    filtered.forEach(rec=>{ const hr=new Date(rec.startTime).getHours(); hourMap[hr]=(hourMap[hr]||0)+1; });
+    const maxHour=Math.max(...Object.values(hourMap),1);
+    const top3Hrs=Object.entries(hourMap).sort((a,b)=>b[1]-a[1]).slice(0,3).filter(([,c])=>c>0);
+    s4H(ar?"🕐 توزيع الجلسات حسب الساعة":"🕐 Hourly Session Distribution","FF4F46E5");
+    if (top3Hrs.length>0) {
+      ws4.mergeCells(r4,1,r4,7); gc(ws4,r4,1).value=(ar?"⭐ أوقات الذروة: ":"⭐ Peak Hours: ")+top3Hrs.map(([h,c])=>`${h}:00 (${c})`).join("   |   ");
+      st(gc(ws4,r4,1),{bold:true,sz:10,fg:C.goldText,bg:C.amberLight,al:"center"}); bd(gc(ws4,r4,1)); ws4.getRow(r4).height=18; r4++;
+    }
+    colHdr(ws4,r4,[ar?"الساعة":"Hour",ar?"الجلسات":"Sessions",ar?"% من اليوم":"% of Day",ar?"مستوى النشاط":"Activity","","",""],"FF4F46E5"); r4++;
+    for(let h=0;h<24;h++) {
+      const cnt=hourMap[h]||0; const pct=totalSessions>0?((cnt/totalSessions)*100).toFixed(1):"0.0";
+      const isTop=top3Hrs.some(([th])=>Number(th)===h); const bg=isTop?C.amberLight:cnt>0?"FFE0E7FF":C.row1;
+      const hLbl=`${String(h).padStart(2,"0")}:00 – ${String(h+1).padStart(2,"0")}:00`;
+      gc(ws4,r4,1).value=hLbl; st(gc(ws4,r4,1),{bold:isTop,sz:9,fg:isTop?C.goldText:C.text,bg,al:"center"}); bd(gc(ws4,r4,1));
+      gc(ws4,r4,2).value=cnt; st(gc(ws4,r4,2),{bold:isTop,sz:10,fg:isTop?C.goldText:cnt>0?"FF4F46E5":C.textMuted,bg,al:"center"}); bd(gc(ws4,r4,2));
+      gc(ws4,r4,3).value=`${pct}%`; st(gc(ws4,r4,3),{sz:9,fg:C.textMuted,bg,al:"center"}); bd(gc(ws4,r4,3));
+      ws4.mergeCells(r4,4,r4,7); gc(ws4,r4,4).value=cnt>0?mkBar(cnt,maxHour,36):""; st(gc(ws4,r4,4),{sz:9,fg:isTop?"FFD97706":"FF4F46E5",bg}); bd(gc(ws4,r4,4));
+      ws4.getRow(r4).height=16; r4++;
+    }
+    r4++;
+    const playerDist:Record<number,number>={};
+    filtered.forEach(h=>{ const p=h.playerCount||1; playerDist[p]=(playerDist[p]||0)+1; });
+    if (Object.keys(playerDist).length>0) {
+      s4H(ar?"👥 توزيع عدد اللاعبين":"👥 Player Count Distribution","FF7C3AED");
+      colHdr(ws4,r4,[ar?"عدد اللاعبين":"Players",ar?"الجلسات":"Sessions",ar?"النسبة":"Ratio",ar?"رسم بياني":"Visual","","",""],"FF7C3AED"); r4++;
+      const pMax=Math.max(...Object.values(playerDist),1);
+      Object.entries(playerDist).sort((a,b)=>Number(a[0])-Number(b[0])).forEach(([p,cnt],i)=>{
+        const pct=totalSessions>0?((cnt/totalSessions)*100).toFixed(1):"0.0"; const bg=i%2===0?"FFF3E8FF":C.row2;
+        gc(ws4,r4,1).value=`${p} ${ar?"لاعب":"player(s)"}`; st(gc(ws4,r4,1),{bold:true,sz:10,fg:"FF7C3AED",bg,al:"center"}); bd(gc(ws4,r4,1));
+        gc(ws4,r4,2).value=cnt; st(gc(ws4,r4,2),{bold:true,sz:10,fg:C.text,bg,al:"center"}); bd(gc(ws4,r4,2));
+        gc(ws4,r4,3).value=`${pct}%`; st(gc(ws4,r4,3),{sz:10,fg:C.textMuted,bg,al:"center"}); bd(gc(ws4,r4,3));
+        ws4.mergeCells(r4,4,r4,7); gc(ws4,r4,4).value=mkBar(cnt,pMax,36); st(gc(ws4,r4,4),{sz:9,fg:"FF7C3AED",bg}); bd(gc(ws4,r4,4));
+        ws4.getRow(r4).height=17; r4++;
+      }); r4++;
+    }
+    ws4.mergeCells(r4,1,r4,7); gc(ws4,r4,1).value=ar?`مركز الصملة — تصدير ${exportDate}`:`ALSAMLAH — Export ${exportDate}`; st(gc(ws4,r4,1),{sz:9,fg:"FF94A3B8",bg:C.headerDark,al:"center"}); ws4.getRow(r4).height=16;
 
-    s3 += gap(C3);
-    s3 += `<tr>${td(ar?`\u0645\u0631\u0643\u0632 \u0627\u0644\u0635\u0645\u0644\u0629 \u2014 \u062A\u0635\u062F\u064A\u0631 ${exportDate}`:`ALSAMLAH \u2014 Export ${exportDate}`,{colspan:C3,color:"#94a3b8",size:10,bg:"#0f172a",align:"center"})}</tr>`;
-    s3 += `</table></div>`;
-
-    // ── Assemble & download ──
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-<head><meta charset="utf-8">
-<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>
-<x:ExcelWorksheet><x:Name>${ar?"\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645":"Dashboard"}</x:Name><x:WorksheetOptions><x:DisplayRightToLeft/></x:WorksheetOptions></x:ExcelWorksheet>
-<x:ExcelWorksheet><x:Name>${ar?"\u0627\u0644\u0645\u0644\u062E\u0635":"Summary"}</x:Name><x:WorksheetOptions><x:DisplayRightToLeft/></x:WorksheetOptions></x:ExcelWorksheet>
-<x:ExcelWorksheet><x:Name>${ar?"\u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A":"Detailed"}</x:Name><x:WorksheetOptions><x:DisplayRightToLeft/></x:WorksheetOptions></x:ExcelWorksheet>
-</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-<style>body{font-family:Arial,sans-serif}table{border-collapse:collapse}</style>
-</head><body>${s1}${s2}${s3}</body></html>`;
-
-    const blob = new Blob(["\uFEFF" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `\u062A\u0642\u0631\u064A\u0631_${periodLabel}_${new Date().toISOString().slice(0,10)}.xls`;
-    a.click();
+    // ── Download ──
+    const buffer=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=`تقرير_${periodLabel}_${new Date().toISOString().slice(0,10)}.xlsx`; a.click();
     URL.revokeObjectURL(url);
   };
 
-  /* ── Tab labels ── */
+  /* ── Tab labels  /* ── Tab labels ── */
   const tabLabels: Record<StatsTab, string> = {
     dashboard: isRTL ? "لوحة التحكم" : "Dashboard",
     summary: isRTL ? "ملخص" : "Summary",

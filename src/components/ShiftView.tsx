@@ -274,6 +274,10 @@ function EodReportModal({ shift, settings, logo, onDismiss }: {
               { label: isRTL ? "إيراد الطلبات" : "Orders Revenue", val: s.ordersRevenue ?? 0, color: "var(--text)" },
               { label: isRTL ? "الخصومات" : "Discounts", val: s.discountTotal, color: "var(--red)" },
               { label: isRTL ? "الديون" : "Debts", val: s.debtTotal, color: "var(--red)" },
+              ...((s.totalRefunds ?? 0) > 0 ? [
+                { label: isRTL ? t.totalRefunds ?? "إجمالي المستردات" : "Total Refunds", val: s.totalRefunds!, color: "var(--yellow)" },
+                { label: isRTL ? t.netAfterRefunds ?? "الصافي بعد الاسترداد" : "Net After Refunds", val: s.netAfterRefunds!, color: "var(--green)" },
+              ] : []),
             ].map(({ label, val, color }) => (
               <div key={label} className="flex justify-between items-center px-3 py-2 rounded-lg text-xs"
                 style={{ background: "var(--input-bg)" }}>
@@ -372,7 +376,8 @@ function EodReportModal({ shift, settings, logo, onDismiss }: {
                 `📲 تحويل: ${fmtMoney(s.transferRevenue)} ${sarUnit}`,
                 s.discountTotal > 0 ? `🏷 خصومات: ${fmtMoney(s.discountTotal)} ${sarUnit}` : "",
                 s.debtTotal > 0 ? `📋 ديون جديدة: ${fmtMoney(s.debtTotal)} ${sarUnit}` : "",
-                `✨ صافي الإيراد: ${fmtMoney(s.netRevenue)} ${sarUnit}`,
+                (s.totalRefunds ?? 0) > 0 ? `💸 مستردات: ${fmtMoney(s.totalRefunds!)} ${sarUnit}` : "",
+                `✨ صافي الإيراد: ${fmtMoney(s.netAfterRefunds ?? s.netRevenue)} ${sarUnit}`,
                 `💵 المتوقع في الصندوق: ${fmtMoney(s.expectedCashInDrawer ?? shift.cashFloat)} ${sarUnit}`,
                 "",
                 "مركز الصملة للترفيه",
@@ -421,12 +426,15 @@ function ShiftCard({ shift, t, isRTL, logo, eodHour }: { shift: ShiftRecord; t: 
       {open && (
         <div className="mt-4 pt-4 grid grid-cols-2 gap-2 text-xs anim-fade" style={{ borderTop: "1px solid var(--border)" }}>
           {[
-            { label: t.cashRev, value: shift.summary.cashRevenue, icon: "💵" },
-            { label: t.cardRev, value: shift.summary.cardRevenue, icon: "💳" },
-            { label: t.transferRev, value: shift.summary.transferRevenue, icon: "📲" },
-            { label: t.discount, value: shift.summary.discountTotal, icon: "🏷️" },
-            { label: t.debt, value: shift.summary.debtTotal, icon: "📝" },
-            { label: t.netRevenue, value: shift.summary.netRevenue, icon: "✅", bold: true },
+            { label: t.cashRev, value: shift.summary.cashRevenue, icon: "💵", bold: false },
+            { label: t.cardRev, value: shift.summary.cardRevenue, icon: "💳", bold: false },
+            { label: t.transferRev, value: shift.summary.transferRevenue, icon: "📲", bold: false },
+            { label: t.discount, value: shift.summary.discountTotal, icon: "🏷️", bold: false },
+            { label: t.debt, value: shift.summary.debtTotal, icon: "📝", bold: false },
+            ...((shift.summary.totalRefunds ?? 0) > 0 ? [
+              { label: t.totalRefunds ?? (isRTL ? "مستردات" : "Refunds"), value: shift.summary.totalRefunds!, icon: "💸", bold: false },
+            ] : []),
+            { label: t.netRevenue, value: shift.summary.netAfterRefunds ?? shift.summary.netRevenue, icon: "✅", bold: true },
           ].map(({ label, value, icon, bold }) => (
             <div key={label} className="flex items-center justify-between px-2 py-1.5 rounded-lg"
               style={{ background: "color-mix(in srgb, var(--accent) 4%, transparent)" }}>

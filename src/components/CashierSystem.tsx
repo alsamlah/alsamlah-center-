@@ -483,21 +483,27 @@ export default function CashierSystem() {
     });
   };
 
-  const endSession = async (itemId: string, payMethod: string, debtAmt: number, discount: number): Promise<string> => {
+  const endSession = async (itemId: string, payMethod: string, debtAmt: number, discount: number, extra?: { payMethods?: Array<{method: string; amount: number}>; splitCount?: number }): Promise<string> => {
     const sess = sessions[itemId]; if (!sess) return "";
     const tot = calcTotal(itemId), info = getInfo(itemId), finalT = Math.max(0, tot.total - (discount || 0));
     // Generate invoice number at session-end time (not print time)
     const invoiceNo = await getInvoiceNo();
+    // Determine primary pay method: largest amount if split, else passed method
+    const primaryMethod = extra?.payMethods?.length
+      ? extra.payMethods.reduce((a, b) => (b.amount > a.amount ? b : a)).method
+      : payMethod;
     const record: HistoryRecord = {
       id: uid(), itemId, itemName: info?.name || "", zoneName: info?.zone?.name || "",
       customerName: sess.customerName, phone: sess.phone, startTime: sess.startTime, endTime: Date.now(),
       duration: tot.elapsed, timePrice: tot.timePrice, orders: orders[itemId] || [],
-      ordersTotal: tot.ordersTotal, total: finalT, payMethod, debtAmount: debtAmt || 0,
+      ordersTotal: tot.ordersTotal, total: finalT, payMethod: primaryMethod, debtAmount: debtAmt || 0,
       discount: discount || 0, graceMins: sess.graceMins || 0, playerCount: sess.playerCount || 1,
       cashier: user?.name || "", sessionType: sess.sessionType || "ps",
       switchedFrom: sess.switchedFrom?.itemName,
       invoiceNo, status: "paid",
       branchId: appCtx?.branch?.id, branchName: appCtx?.branch?.name,
+      ...(extra?.payMethods?.length ? { payMethods: extra.payMethods } : {}),
+      ...(extra?.splitCount && extra.splitCount > 1 ? { splitCount: extra.splitCount, splitAmount: parseFloat((finalT / extra.splitCount).toFixed(2)) } : {}),
     };
     setHistory((p) => [record, ...p]);
     // Supabase: add to history + remove session
@@ -571,6 +577,27 @@ export default function CashierSystem() {
     if (tenantId) deleteHistoryRecordDB(tenantId, recordId).catch(() => {});
   };
 
+  const handleCorrection = (recordId: string, correctedTotal: number, refundMethod: "cash" | "transfer", note?: string) => {
+    setHistory((prev) => prev.map((r) => {
+      if (r.id !== recordId) return r;
+      const updated: HistoryRecord = {
+        ...r,
+        correction: {
+          originalTotal: r.total,
+          correctedTotal,
+          refundAmount: r.total - correctedTotal,
+          refundMethod,
+          refundBy: user?.name || "",
+          refundDate: Date.now(),
+          note,
+        },
+      };
+      if (tenantId) updateHistoryRecordDB(tenantId, updated).catch(() => {});
+      return updated;
+    }));
+    notify(t.refundRecorded + " ✓");
+  };
+
   // Role logout (back to role selection, stay authenticated with Supabase)
   const handleLogout = () => {
     setUser(null);
@@ -626,6 +653,7 @@ export default function CashierSystem() {
     }
     const itemSales = Object.values(itemMap).sort((a, b) => b.qty - a.qty);
     const expectedCashInDrawer = currentShift.cashFloat + cashRevenue;
+    const totalRefunds = paidRecs.reduce((s, h) => s + (h.correction?.refundAmount || 0), 0);
 
     const record: ShiftRecord = {
       ...currentShift,
@@ -647,6 +675,8 @@ export default function CashierSystem() {
         byZone,
         itemSales,
         expectedCashInDrawer,
+        totalRefunds: totalRefunds > 0 ? totalRefunds : undefined,
+        netAfterRefunds: totalRefunds > 0 ? totalRevenue - discountTotal - totalRefunds : undefined,
       },
     };
     setShiftHistory((p) => [record, ...p.slice(0, 29)]);
@@ -974,6 +1004,7 @@ export default function CashierSystem() {
               setHistory([]);
               if (tenantId) clearHistory(tenantId).catch(() => {});
             } : undefined}
+            onCorrection={isManager ? handleCorrection : undefined}
           />
         )}
 

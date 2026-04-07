@@ -17,6 +17,7 @@ interface Props {
   onDelete: (id: string) => void;
   onCompleteHeld: (record: HistoryRecord) => void;
   onClearHistory?: () => void;
+  onCorrection?: (recordId: string, correctedTotal: number, refundMethod: "cash" | "transfer", note?: string) => void;
 }
 
 type Period = "all" | "today" | "week" | "month" | "range";
@@ -200,9 +201,94 @@ function CompleteHeldModal({ record, settings, onComplete, onClose }: {
   );
 }
 
+// ── Correction Modal ──────────────────────────────────────────────────────────
+
+function CorrectionModal({ record, settings, onConfirm, onClose }: {
+  record: HistoryRecord;
+  settings: SystemSettings;
+  onConfirm: (correctedTotal: number, refundMethod: "cash" | "transfer", note?: string) => void;
+  onClose: () => void;
+}) {
+  const t = T[settings.lang];
+  const isRTL = settings.lang === "ar";
+  const [correctedInput, setCorrectedInput] = useState("");
+  const [refundMethod, setRefundMethod] = useState<"cash" | "transfer">("cash");
+  const [note, setNote] = useState("");
+
+  const corrected = parseFloat(correctedInput) || 0;
+  const refundAmt = record.total - corrected;
+  const valid = corrected >= 0 && corrected < record.total;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}>
+      <div className="card p-5 w-full max-w-sm" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+        <h3 className="font-bold text-base mb-4" style={{ color: "var(--yellow)" }}>
+          💸 {t.correction} — #{record.invoiceNo}
+        </h3>
+
+        <div className="space-y-3 text-sm">
+          <div className="flex justify-between p-2 rounded" style={{ background: "color-mix(in srgb, var(--surface) 80%, transparent)" }}>
+            <span style={{ color: "var(--text2)" }}>{t.originalTotal}</span>
+            <span className="font-bold">{fmtMoney(record.total)}</span>
+          </div>
+
+          <div>
+            <label className="block mb-1 text-xs" style={{ color: "var(--text2)" }}>{t.correctedAmount}</label>
+            <input
+              className="input w-full"
+              type="number"
+              min={0}
+              max={record.total - 0.01}
+              step={0.01}
+              placeholder="0"
+              value={correctedInput}
+              onChange={(e) => setCorrectedInput(e.target.value)}
+              dir="ltr"
+            />
+          </div>
+
+          {correctedInput && corrected >= 0 && corrected < record.total && (
+            <div className="p-2 rounded text-sm font-bold" style={{ background: "color-mix(in srgb, var(--red) 10%, transparent)", color: "var(--red)" }}>
+              {t.refundAmt}: {fmtMoney(refundAmt)}
+            </div>
+          )}
+
+          <div>
+            <label className="block mb-1 text-xs" style={{ color: "var(--text2)" }}>{t.refundMethodLabel}</label>
+            <div className="flex gap-2">
+              {(["cash", "transfer"] as const).map((m) => (
+                <button key={m} onClick={() => setRefundMethod(m)}
+                  className="btn flex-1 py-2 text-sm"
+                  style={refundMethod === m ? { background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" } : {}}>
+                  {m === "cash" ? "💵 " : "📲 "}{isRTL ? (m === "cash" ? "نقد" : "تحويل") : (m === "cash" ? "Cash" : "Transfer")}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block mb-1 text-xs" style={{ color: "var(--text2)" }}>{isRTL ? "ملاحظة (اختياري)" : "Note (optional)"}</label>
+            <input className="input w-full" type="text" value={note} onChange={(e) => setNote(e.target.value)} dir={isRTL ? "rtl" : "ltr"} />
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-4">
+          <button className="btn btn-ghost flex-1 py-2 text-sm" onClick={onClose}>{t.cancel}</button>
+          <button disabled={!valid} onClick={() => onConfirm(corrected, refundMethod, note || undefined)}
+            className="btn flex-1 py-2 text-sm font-bold"
+            style={valid ? { background: "var(--yellow)", color: "#1a1a00", borderColor: "var(--yellow)" } : { opacity: 0.4 }}>
+            {t.confirmRefund}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export default function HistoryView({ history, settings, logo, isManager, onEdit, onDelete, onCompleteHeld, onClearHistory }: Props) {
+export default function HistoryView({ history, settings, logo, isManager, onEdit, onDelete, onCompleteHeld, onClearHistory, onCorrection }: Props) {
   const t = T[settings.lang];
   const isRTL = settings.lang === "ar";
   const eodHour = settings.endOfDayHour ?? 5;
@@ -217,9 +303,10 @@ export default function HistoryView({ history, settings, logo, isManager, onEdit
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // ── Edit / complete-held state ──
+  // ── Edit / complete-held / correction state ──
   const [editRecord, setEditRecord] = useState<HistoryRecord | null>(null);
   const [completeRecord, setCompleteRecord] = useState<HistoryRecord | null>(null);
+  const [correctionRecord, setCorrectionRecord] = useState<HistoryRecord | null>(null);
 
   // ── Filtered records ──────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -522,6 +609,19 @@ export default function HistoryView({ history, settings, logo, isManager, onEdit
                         style={{ color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 20%, transparent)" }}>
                         ✏️ {t.editInvoice}
                       </button>
+                      {onCorrection && !h.correction && (h.status ?? "paid") === "paid" && (
+                        <button onClick={() => setCorrectionRecord(h)}
+                          className="btn px-3 py-1.5 text-xs"
+                          style={{ color: "var(--yellow)", borderColor: "color-mix(in srgb, var(--yellow) 25%, transparent)", background: "color-mix(in srgb, var(--yellow) 8%, transparent)" }}>
+                          💸 {t.correction}
+                        </button>
+                      )}
+                      {h.correction && (
+                        <span className="badge text-xs px-2 py-1"
+                          style={{ background: "color-mix(in srgb, var(--yellow) 15%, transparent)", color: "var(--yellow)" }}>
+                          ✏️ {isRTL ? `مُصحَّح — استرداد ${fmtMoney(h.correction.refundAmount)}` : `Corrected — refund ${fmtMoney(h.correction.refundAmount)}`}
+                        </span>
+                      )}
                       <button onClick={() => {
                         if (confirm(isRTL ? "حذف هذا السجل؟" : "Delete this record?")) onDelete(h.id);
                       }}
@@ -559,6 +659,18 @@ export default function HistoryView({ history, settings, logo, isManager, onEdit
             setCompleteRecord(null);
           }}
           onClose={() => setCompleteRecord(null)}
+        />
+      )}
+
+      {correctionRecord && onCorrection && (
+        <CorrectionModal
+          record={correctionRecord}
+          settings={settings}
+          onConfirm={(correctedTotal, refundMethod, note) => {
+            onCorrection(correctionRecord.id, correctedTotal, refundMethod, note);
+            setCorrectionRecord(null);
+          }}
+          onClose={() => setCorrectionRecord(null)}
         />
       )}
     </div>

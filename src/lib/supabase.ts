@@ -124,6 +124,21 @@ export interface HistoryRecord {
   status?: "paid" | "held-occupied" | "held-free";      // undefined = "paid" (backward compat)
   branchId?: string;                                     // branch that created this record (optional for multi-branch filter)
   branchName?: string;
+  // Split payment — multiple methods contributing to the total
+  payMethods?: Array<{ method: string; amount: number }>;
+  // Split bill — cosmetic, one receipt showing per-person amount
+  splitCount?: number;
+  splitAmount?: number;                                  // total / splitCount
+  // Manager correction — record a refund when cashier overcharged
+  correction?: {
+    originalTotal: number;
+    correctedTotal: number;
+    refundAmount: number;
+    refundMethod: "cash" | "transfer";
+    refundBy: string;
+    refundDate: number;
+    note?: string;
+  };
 }
 
 export interface DebtPayment {
@@ -189,6 +204,8 @@ export interface ShiftRecord extends Shift {
     byZone?: Record<string, { count: number; rev: number }>;
     itemSales?: { name: string; icon: string; qty: number; rev: number }[];
     expectedCashInDrawer?: number;
+    totalRefunds?: number;
+    netAfterRefunds?: number;
   };
 }
 
