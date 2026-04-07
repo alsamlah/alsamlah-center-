@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import type { Floor, MenuItem, UserRole } from "@/lib/supabase";
+import type { Floor, Zone, MenuItem, UserRole } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
 import { FONTS, FONT_SIZES, T } from "@/lib/settings";
-import { MENU_ICONS, ROLE_LABELS } from "@/lib/defaults";
+import { MENU_ICONS, ROLE_LABELS, COUNTER_FLOOR_ID } from "@/lib/defaults";
 import SarSymbol from "./SarSymbol";
 import BusinessProfile from "./BusinessProfile";
 import QrCodesTab from "./QrCodesTab";
@@ -39,6 +39,20 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
   const [showAddCat, setShowAddCat] = useState(false);
   const [pinEdits, setPinEdits] = useState<Record<string, string>>({});
 
+  // ── Zone / Floor management state ──
+  const [editZoneId, setEditZoneId] = useState<string | null>(null);
+  const [editZoneData, setEditZoneData] = useState<Partial<Zone>>({});
+  const [showZoneIconPicker, setShowZoneIconPicker] = useState(false);
+  const [newItemName, setNewItemName] = useState("");
+  const [addZoneFloorId, setAddZoneFloorId] = useState<string | null>(null);
+  const [newZoneData, setNewZoneData] = useState({ name: "", icon: "🎮", pricingMode: "hourly", pricePerHour: 0 });
+  const [showNewZoneIconPicker, setShowNewZoneIconPicker] = useState(false);
+  const [editFloorId, setEditFloorId] = useState<string | null>(null);
+  const [editFloorName, setEditFloorName] = useState("");
+  const [showAddFloor, setShowAddFloor] = useState(false);
+  const [newFloorName, setNewFloorName] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
   const t = T[settings.lang];
   const isRTL = settings.lang === "ar";
   const isManager = role === "manager";
@@ -57,12 +71,21 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
 
   const tabs = [
     { id: "business", label: "🏢 " + (isRTL ? "ملف المركز" : "Business") },
+    { id: "zones", label: "🏗️ " + (isRTL ? "الغرف والأنشطة" : "Zones") },
     { id: "prices", label: "💲 " + t.prices },
     { id: "menu", label: "🧾 " + t.menu },
     { id: "qr", label: "📱 " + (isRTL ? "رموز QR" : "QR Codes") },
     { id: "pins", label: "🔑 " + t.pins },
     { id: "settings", label: "🎨 " + t.settings },
     { id: "danger", label: "⚠️ " + t.danger },
+  ];
+
+  const ZONE_ICONS_LIST = ["🎮", "🎱", "♟️", "🃏", "🥊", "🏓", "🛋️", "☕", "💆", "🎯", "🎳", "🎲", "⚽", "🏀", "🎿", "🚗", "🎸", "🎤", "🏋️", "🎬", "🪀", "🎠", "🎡", "🎢", "🀄", "🎭", "🎨", "🎪", "🎰", "🏊", "🧩", "🎻"];
+  const PRICING_MODES = [
+    { id: "hourly",  label: isRTL ? "بالساعة"       : "Hourly"   },
+    { id: "per-hit", label: isRTL ? "بالضربة"       : "Per Hit"  },
+    { id: "manual",  label: isRTL ? "يدوي"          : "Manual"   },
+    { id: "walkin",  label: isRTL ? "طلبات مباشرة"  : "Walk-in"  },
   ];
 
   return (
@@ -138,6 +161,258 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
           ))}
         </div>
       ))}
+
+      {/* ── Zones & Activities ── */}
+      {tab === "zones" && (() => {
+        const editableFloors = floors.filter((f) => f.id !== COUNTER_FLOOR_ID);
+        const pricingLabel = (mode?: string) => {
+          if (mode === "manual")  return isRTL ? "يدوي"          : "Manual";
+          if (mode === "walkin")  return isRTL ? "مباشر"         : "Walk-in";
+          if (mode === "per-hit") return isRTL ? "بالضربة"       : "Per hit";
+          return isRTL ? "بالساعة" : "Hourly";
+        };
+        const closeEditZone = () => { setEditZoneId(null); setEditZoneData({}); setShowZoneIconPicker(false); setNewItemName(""); setDeleteConfirm(null); };
+        return (
+          <div>
+            {editableFloors.map((f) => (
+              <div key={f.id} className="mb-7">
+                {/* ── Floor header ── */}
+                <div className="flex items-center gap-2 mb-3">
+                  {editFloorId === f.id ? (
+                    <input type="text" value={editFloorName} onChange={(e) => setEditFloorName(e.target.value)}
+                      className="input font-bold text-sm" style={{ flex: 1, width: 0 }} autoFocus />
+                  ) : (
+                    <div className="text-sm font-bold flex-1" style={{ color: "var(--text)" }}>{f.name}</div>
+                  )}
+                  {editFloorId === f.id ? (
+                    <>
+                      <button onClick={() => { setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, name: editFloorName } : fl)); setEditFloorId(null); notify("✓"); }}
+                        className="btn btn-success px-3 py-1.5 text-xs">💾</button>
+                      <button onClick={() => setEditFloorId(null)} className="btn px-3 py-1.5 text-xs" style={{ color: "var(--text2)" }}>✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => { setEditFloorId(f.id); setEditFloorName(f.name); }}
+                        className="btn px-3 py-1.5 text-xs" style={{ color: "var(--text2)" }}>✏️</button>
+                      {deleteConfirm === `floor:${f.id}` ? (
+                        <>
+                          <button onClick={() => { setFloors((p) => p.filter((fl) => fl.id !== f.id)); setDeleteConfirm(null); notify(isRTL ? "تم الحذف" : "Deleted"); }}
+                            className="btn btn-danger px-3 py-1.5 text-xs">{isRTL ? "تأكيد" : "Yes, delete"}</button>
+                          <button onClick={() => setDeleteConfirm(null)} className="btn px-2 py-1.5 text-xs" style={{ color: "var(--text2)" }}>✕</button>
+                        </>
+                      ) : (
+                        <button onClick={() => setDeleteConfirm(`floor:${f.id}`)}
+                          className="btn px-2 py-1.5 text-xs" style={{ color: "var(--red)" }}>🗑️</button>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* ── Zones list ── */}
+                {f.zones.map((z) => (
+                  <div key={z.id} className="card mb-2 overflow-hidden">
+                    {editZoneId === z.id ? (
+                      /* ── Edit zone mode ── */
+                      <div className="p-4 anim-fade">
+                        {/* Icon + Name */}
+                        <div className="flex gap-2 mb-3">
+                          <button onClick={() => setShowZoneIconPicker(!showZoneIconPicker)}
+                            className="w-11 h-11 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+                            style={{ background: "var(--input-bg)", border: "2px dashed color-mix(in srgb, var(--accent) 30%, transparent)" }}>
+                            {editZoneData.icon}
+                          </button>
+                          <input type="text" value={editZoneData.name || ""} onChange={(e) => setEditZoneData({ ...editZoneData, name: e.target.value })}
+                            className="input font-bold" style={{ flex: 1, width: 0 }} placeholder={isRTL ? "اسم النشاط" : "Activity name"} />
+                        </div>
+                        {showZoneIconPicker && (
+                          <div className="flex flex-wrap gap-1.5 mb-3 p-3 rounded-xl" style={{ background: "var(--input-bg)" }}>
+                            {ZONE_ICONS_LIST.map((ic) => (
+                              <button key={ic} onClick={() => { setEditZoneData({ ...editZoneData, icon: ic }); setShowZoneIconPicker(false); }}
+                                className="w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-all"
+                                style={{ background: editZoneData.icon === ic ? "color-mix(in srgb, var(--accent) 15%, transparent)" : "transparent", border: `1px solid ${editZoneData.icon === ic ? "color-mix(in srgb, var(--accent) 30%, transparent)" : "var(--border)"}` }}>
+                                {ic}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {/* Pricing mode */}
+                        <div className="mb-3">
+                          <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{isRTL ? "نوع التسعير" : "Pricing mode"}</label>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {PRICING_MODES.map((pm) => (
+                              <button key={pm.id} onClick={() => setEditZoneData({ ...editZoneData, pricingMode: pm.id as Zone["pricingMode"] })}
+                                className="btn py-2 text-xs"
+                                style={{ background: editZoneData.pricingMode === pm.id ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "var(--input-bg)", color: editZoneData.pricingMode === pm.id ? "var(--accent)" : "var(--text2)", borderColor: editZoneData.pricingMode === pm.id ? "color-mix(in srgb, var(--accent) 25%, transparent)" : "var(--border)" }}>
+                                {pm.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Price input based on mode */}
+                        {(editZoneData.pricingMode === "hourly" || !editZoneData.pricingMode) && (
+                          <div className="mb-3">
+                            <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.pricePerHour} (<SarSymbol size={11} />)</label>
+                            <input type="number" value={editZoneData.pricePerHour ?? 0} onChange={(e) => setEditZoneData({ ...editZoneData, pricePerHour: Number(e.target.value) })} className="input" />
+                          </div>
+                        )}
+                        {editZoneData.pricingMode === "per-hit" && (
+                          <div className="mb-3">
+                            <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.hitPrice} (<SarSymbol size={11} />/{isRTL ? "ضربة" : "hit"})</label>
+                            <input type="number" step="0.5" value={editZoneData.hitPrice ?? 0} onChange={(e) => setEditZoneData({ ...editZoneData, hitPrice: Number(e.target.value) })} className="input" />
+                          </div>
+                        )}
+                        {/* Items */}
+                        <div className="mb-3">
+                          <div className="text-xs font-medium mb-2" style={{ color: "var(--text2)" }}>
+                            {isRTL ? "العناصر" : "Items"} ({(editZoneData.items || []).length})
+                          </div>
+                          <div className="flex flex-col gap-1 mb-2">
+                            {(editZoneData.items || []).map((item) => (
+                              <div key={item.id} className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: "var(--input-bg)" }}>
+                                <span className="flex-1 text-sm" style={{ color: "var(--text)" }}>{item.name}</span>
+                                <button onClick={() => setEditZoneData({ ...editZoneData, items: (editZoneData.items || []).filter((i) => i.id !== item.id) })}
+                                  className="text-xs px-1" style={{ color: "var(--red)" }}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex gap-2">
+                            <input type="text" placeholder={isRTL ? "اسم العنصر الجديد..." : "New item name..."}
+                              value={newItemName} onChange={(e) => setNewItemName(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter" && newItemName.trim()) { setEditZoneData({ ...editZoneData, items: [...(editZoneData.items || []), { id: `item-${Date.now()}`, name: newItemName.trim() }] }); setNewItemName(""); } }}
+                              className="input text-sm" style={{ flex: 1, width: 0 }} />
+                            <button onClick={() => { if (newItemName.trim()) { setEditZoneData({ ...editZoneData, items: [...(editZoneData.items || []), { id: `item-${Date.now()}`, name: newItemName.trim() }] }); setNewItemName(""); } }}
+                              className="btn btn-primary px-4 py-2 text-xs">+</button>
+                          </div>
+                        </div>
+                        {/* Save / Cancel / Delete */}
+                        <div className="flex gap-2 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                          <button onClick={() => {
+                            setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, zones: fl.zones.map((zn) => zn.id === z.id ? { ...zn, ...editZoneData } as Zone : zn) } : fl));
+                            closeEditZone(); notify("✓");
+                          }} className="btn btn-success flex-1 py-2 text-xs">💾 {t.save}</button>
+                          <button onClick={closeEditZone} className="btn flex-1 py-2 text-xs" style={{ color: "var(--text2)" }}>
+                            ✕ {isRTL ? "إلغاء" : "Cancel"}
+                          </button>
+                          {deleteConfirm === `zone:${f.id}:${z.id}` ? (
+                            <button onClick={() => { setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, zones: fl.zones.filter((zn) => zn.id !== z.id) } : fl)); closeEditZone(); notify(isRTL ? "تم حذف النشاط" : "Zone deleted"); }}
+                              className="btn btn-danger px-3 py-2 text-xs">{isRTL ? "تأكيد الحذف" : "Confirm delete"}</button>
+                          ) : (
+                            <button onClick={() => setDeleteConfirm(`zone:${f.id}:${z.id}`)}
+                              className="btn px-3 py-2 text-xs" style={{ color: "var(--red)", borderColor: "color-mix(in srgb, var(--red) 20%, transparent)" }}>🗑️</button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* ── View mode ── */
+                      <button onClick={() => { closeEditZone(); setEditZoneId(z.id); setEditZoneData({ ...z }); }}
+                        className="w-full flex items-center gap-3 p-4 transition-all text-start hover:opacity-80">
+                        <span className="text-xl flex-shrink-0">{z.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>{z.name}</div>
+                          <div className="text-xs" style={{ color: "var(--text2)" }}>
+                            {z.items.length} {isRTL ? "عنصر" : "items"} · {pricingLabel(z.pricingMode)}
+                          </div>
+                        </div>
+                        <span className="text-xs flex-shrink-0" style={{ color: "var(--text2)" }}>✏️ {isRTL ? "تعديل" : "Edit"}</span>
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {/* ── Add zone to this floor ── */}
+                {addZoneFloorId === f.id ? (
+                  <div className="card p-4 mb-1 anim-fade" style={{ borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)" }}>
+                    <div className="text-xs font-semibold mb-3" style={{ color: "var(--accent)" }}>+ {isRTL ? "نشاط جديد" : "New Activity"}</div>
+                    <div className="flex gap-2 mb-3">
+                      <button onClick={() => setShowNewZoneIconPicker(!showNewZoneIconPicker)}
+                        className="w-11 h-11 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+                        style={{ background: "var(--input-bg)", border: "2px dashed color-mix(in srgb, var(--accent) 30%, transparent)" }}>
+                        {newZoneData.icon}
+                      </button>
+                      <input type="text" value={newZoneData.name} onChange={(e) => setNewZoneData({ ...newZoneData, name: e.target.value })}
+                        placeholder={isRTL ? "اسم النشاط (مثال: جاكارو)" : "Name (e.g. Jackaro)"}
+                        className="input" style={{ flex: 1, width: 0 }} autoFocus />
+                    </div>
+                    {showNewZoneIconPicker && (
+                      <div className="flex flex-wrap gap-1.5 mb-3 p-3 rounded-xl" style={{ background: "var(--input-bg)" }}>
+                        {ZONE_ICONS_LIST.map((ic) => (
+                          <button key={ic} onClick={() => { setNewZoneData({ ...newZoneData, icon: ic }); setShowNewZoneIconPicker(false); }}
+                            className="w-9 h-9 rounded-lg flex items-center justify-center text-lg"
+                            style={{ background: newZoneData.icon === ic ? "color-mix(in srgb, var(--accent) 15%, transparent)" : "transparent", border: `1px solid ${newZoneData.icon === ic ? "color-mix(in srgb, var(--accent) 30%, transparent)" : "var(--border)"}` }}>
+                            {ic}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mb-3">
+                      <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{isRTL ? "نوع التسعير" : "Pricing mode"}</label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {PRICING_MODES.map((pm) => (
+                          <button key={pm.id} onClick={() => setNewZoneData({ ...newZoneData, pricingMode: pm.id })}
+                            className="btn py-2 text-xs"
+                            style={{ background: newZoneData.pricingMode === pm.id ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "var(--input-bg)", color: newZoneData.pricingMode === pm.id ? "var(--accent)" : "var(--text2)", borderColor: newZoneData.pricingMode === pm.id ? "color-mix(in srgb, var(--accent) 25%, transparent)" : "var(--border)" }}>
+                            {pm.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {newZoneData.pricingMode === "hourly" && (
+                      <div className="mb-3">
+                        <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.pricePerHour} (<SarSymbol size={11} />)</label>
+                        <input type="number" value={newZoneData.pricePerHour} onChange={(e) => setNewZoneData({ ...newZoneData, pricePerHour: Number(e.target.value) })} className="input" />
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button onClick={() => {
+                        if (!newZoneData.name.trim()) return;
+                        const zone: Zone = { id: `zone-${Date.now()}`, name: newZoneData.name.trim(), icon: newZoneData.icon, pricePerHour: newZoneData.pricePerHour, minCharge: 0, pricingMode: newZoneData.pricingMode as Zone["pricingMode"], items: [] };
+                        setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, zones: [...fl.zones, zone] } : fl));
+                        setAddZoneFloorId(null); setNewZoneData({ name: "", icon: "🎮", pricingMode: "hourly", pricePerHour: 0 }); setShowNewZoneIconPicker(false);
+                        notify(isRTL ? "تمت إضافة النشاط ✓" : "Zone added ✓");
+                      }} className="btn btn-primary flex-1 py-2.5 text-sm">+ {isRTL ? "إضافة" : "Add"}</button>
+                      <button onClick={() => { setAddZoneFloorId(null); setNewZoneData({ name: "", icon: "🎮", pricingMode: "hourly", pricePerHour: 0 }); setShowNewZoneIconPicker(false); }}
+                        className="btn px-4 py-2.5 text-sm" style={{ color: "var(--text2)" }}>✕</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => { setAddZoneFloorId(f.id); setEditZoneId(null); }}
+                    className="btn w-full py-3 text-sm"
+                    style={{ background: "color-mix(in srgb, var(--accent) 5%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 20%, transparent)", borderStyle: "dashed" }}>
+                    + {isRTL ? "أضف نشاطاً لهذا الطابق" : "Add Activity to Floor"}
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {/* ── Add new floor ── */}
+            <div className="mt-2">
+              {showAddFloor ? (
+                <div className="card p-4 anim-fade" style={{ borderColor: "color-mix(in srgb, var(--blue) 25%, transparent)" }}>
+                  <div className="text-xs font-semibold mb-3" style={{ color: "var(--blue)" }}>🏢 {isRTL ? "طابق جديد" : "New Floor"}</div>
+                  <div className="flex gap-2">
+                    <input type="text" value={newFloorName} onChange={(e) => setNewFloorName(e.target.value)}
+                      placeholder={isRTL ? "مثال: الطابق الثالث" : "e.g. Third Floor"} className="input" style={{ flex: 1, width: 0 }} autoFocus />
+                    <button onClick={() => {
+                      if (!newFloorName.trim()) return;
+                      const counter = floors.find((f) => f.id === COUNTER_FLOOR_ID);
+                      const rest = floors.filter((f) => f.id !== COUNTER_FLOOR_ID);
+                      setFloors(counter ? [...rest, { id: `floor-${Date.now()}`, name: newFloorName.trim(), zones: [] }, counter] : [...rest, { id: `floor-${Date.now()}`, name: newFloorName.trim(), zones: [] }]);
+                      setNewFloorName(""); setShowAddFloor(false); notify(isRTL ? "تمت إضافة الطابق ✓" : "Floor added ✓");
+                    }} className="btn btn-primary px-4 py-2 text-sm">{isRTL ? "إضافة" : "Add"}</button>
+                    <button onClick={() => { setShowAddFloor(false); setNewFloorName(""); }} className="btn px-3 py-2 text-sm" style={{ color: "var(--text2)" }}>✕</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setShowAddFloor(true)}
+                  className="btn w-full py-3 text-sm"
+                  style={{ background: "color-mix(in srgb, var(--blue) 5%, transparent)", color: "var(--blue)", borderColor: "color-mix(in srgb, var(--blue) 20%, transparent)", borderStyle: "dashed" }}>
+                  🏢 + {isRTL ? "أضف طابقاً جديداً" : "Add New Floor"}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Menu ── */}
       {tab === "menu" && (
