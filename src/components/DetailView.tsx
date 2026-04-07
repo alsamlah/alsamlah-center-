@@ -477,28 +477,34 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                   <div className="card p-3" style={{ background: "var(--input-bg)" }}>
                     <div className="flex flex-col gap-2 mb-3">
                       {splitParts.map((part, i) => (
-                        <div key={i} className="flex gap-2 items-center">
-                          <span className="text-[10px] font-bold w-5 text-center shrink-0" style={{ color: "var(--text2)" }}>{i + 1}</span>
-                          <input
-                            type="number" min={0} placeholder="0"
-                            value={part.amount}
-                            onChange={e => setSplitParts(prev => prev.map((p, j) => j === i ? { ...p, amount: e.target.value } : p))}
-                            className="input text-sm py-1.5 flex-1"
-                            dir="ltr"
-                          />
-                          <select
-                            value={part.method}
-                            onChange={e => setSplitParts(prev => prev.map((p, j) => j === i ? { ...p, method: e.target.value as "cash"|"card"|"transfer" } : p))}
-                            className="input text-xs py-1.5 w-24 shrink-0">
+                        <div key={i}>
+                          <div className="flex gap-1.5 items-center mb-1">
+                            <span className="text-[10px] font-bold shrink-0" style={{ color: "var(--text2)", minWidth: "1rem", textAlign: "center" }}>{i + 1}</span>
+                            <input
+                              type="number" min={0} placeholder="0"
+                              value={part.amount}
+                              onChange={e => setSplitParts(prev => prev.map((p, j) => j === i ? { ...p, amount: e.target.value } : p))}
+                              className="input text-sm py-1.5"
+                              style={{ flex: 1, width: 0 }}
+                              dir="ltr"
+                            />
+                            {splitParts.length > 1 && (
+                              <button onClick={() => setSplitParts(prev => prev.filter((_, j) => j !== i))}
+                                className="btn px-2 py-1.5 text-xs shrink-0"
+                                style={{ color: "var(--red)", borderColor: "color-mix(in srgb, var(--red) 20%, transparent)" }}>✕</button>
+                            )}
+                          </div>
+                          <div className="flex gap-1 mr-5">
                             {(["cash","card","transfer"] as const).map(m => (
-                              <option key={m} value={m}>{methodIcons[m]} {methodLabels[m]}</option>
+                              <button key={m} onClick={() => setSplitParts(prev => prev.map((p, j) => j === i ? { ...p, method: m } : p))}
+                                className="btn text-[10px] px-2 py-1 flex-1"
+                                style={part.method === m
+                                  ? { background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 30%, transparent)" }
+                                  : { color: "var(--text2)" }}>
+                                {methodIcons[m]} {methodLabels[m]}
+                              </button>
                             ))}
-                          </select>
-                          {splitParts.length > 1 && (
-                            <button onClick={() => setSplitParts(prev => prev.filter((_, j) => j !== i))}
-                              className="btn px-2 py-1.5 text-xs shrink-0"
-                              style={{ color: "var(--red)", borderColor: "color-mix(in srgb, var(--red) 20%, transparent)" }}>✕</button>
-                          )}
+                          </div>
                         </div>
                       ))}
                     </div>

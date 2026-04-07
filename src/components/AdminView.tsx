@@ -212,9 +212,9 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
                           {editItem.icon}
                         </button>
                         <input type="text" value={editItem.name} onChange={(e) => setEditItem({ ...editItem, name: e.target.value })}
-                          className="input flex-1 font-bold" />
+                          className="input font-bold" style={{ flex: 1, width: 0 }} />
                         <input type="number" value={editItem.price} onChange={(e) => setEditItem({ ...editItem, price: e.target.value })}
-                          className="input w-20" />
+                          className="input" style={{ width: "5rem", flexShrink: 0 }} />
                       </div>
                       {editIconPicker && (
                         <div className="flex flex-wrap gap-1.5 mb-3 p-2 card">
@@ -391,7 +391,8 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
                 max="1000"
                 value={settings.loyaltyPointsRatio ?? 50}
                 onChange={(e) => setSettings((s) => ({ ...s, loyaltyPointsRatio: Math.max(1, Number(e.target.value) || 50) }))}
-                className="input w-28"
+                className="input"
+                style={{ width: "7rem", flexShrink: 0 }}
                 dir="ltr"
               />
               <span className="text-sm" style={{ color: "var(--text2)" }}>
@@ -413,7 +414,8 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
                 max="11"
                 value={settings.endOfDayHour ?? 5}
                 onChange={(e) => setSettings((s) => ({ ...s, endOfDayHour: Math.max(0, Math.min(11, Number(e.target.value) || 5)) }))}
-                className="input w-24"
+                className="input"
+                style={{ width: "6rem", flexShrink: 0 }}
                 dir="ltr"
               />
               <span className="text-sm" style={{ color: "var(--text2)" }}>
