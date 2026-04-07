@@ -26,30 +26,34 @@ const ZONE_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06
 const PAY_COLORS: Record<string, string> = { cash: "#22c55e", card: "#6366f1", transfer: "#f59e0b" };
 
 /* ── SVG Donut Chart ── */
-function DonutChart({ data, size = 160 }: { data: { label: string; value: number; color: string }[]; size?: number }) {
+function DonutChart({ data, size = 170 }: { data: { label: string; value: number; color: string }[]; size?: number }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   if (total === 0) return null;
-  const R = 50, CX = 60, CY = 60, STROKE = 25;
+  // viewBox 160×160, center (80,80), R=56, STROKE=26 → outer edge = 56+13 = 69 < 80 ✓ no clipping
+  const R = 56, CX = 80, CY = 80, STROKE = 26;
   const C = 2 * Math.PI * R;
   let offset = 0;
   return (
-    <div style={{ textAlign: "center" }}>
-      <svg viewBox="0 0 120 120" width={size} height={size}>
+    <div style={{ display: "flex", justifyContent: "center" }}>
+      <svg viewBox="0 0 160 160" width={size} height={size} style={{ display: "block" }}>
+        {/* Background ring */}
+        <circle cx={CX} cy={CY} r={R} fill="none" stroke="var(--border)" strokeWidth={STROKE} opacity={0.4} />
         {data.filter(d => d.value > 0).map((d, i) => {
           const pct = d.value / total;
           const dash = `${pct * C} ${C}`;
           const el = (
             <circle key={i} cx={CX} cy={CY} r={R} fill="none" stroke={d.color}
               strokeWidth={STROKE} strokeDasharray={dash} strokeDashoffset={-offset}
+              strokeLinecap="butt"
               transform={`rotate(-90 ${CX} ${CY})`} />
           );
           offset += pct * C;
           return el;
         })}
-        <text x={CX} y={CY - 4} textAnchor="middle" style={{ fontSize: 12, fill: "var(--text)", fontWeight: 700 }}>
+        <text x={CX} y={CY - 5} textAnchor="middle" style={{ fontSize: 13, fill: "var(--text)", fontWeight: 700 }}>
           {fmtMoney(total)}
         </text>
-        <text x={CX} y={CY + 10} textAnchor="middle" style={{ fontSize: 7, fill: "var(--text2)" }}>&#xFDFC;</text>
+        <text x={CX} y={CY + 11} textAnchor="middle" style={{ fontSize: 9, fill: "var(--text2)" }}>&#xFDFC;</text>
       </svg>
     </div>
   );

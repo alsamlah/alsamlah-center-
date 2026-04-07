@@ -22,40 +22,124 @@ interface Props {
 
 type Period = "all" | "today" | "week" | "month" | "range";
 
-// ── CSV Export ────────────────────────────────────────────────────────────────
+// ── Excel (.xlsx) Export ─────────────────────────────────────────────────────
 
-function exportCsv(records: HistoryRecord[], lang: string) {
+async function exportXlsx(records: HistoryRecord[], lang: string) {
   const isAr = lang === "ar";
-  const headers = isAr
-    ? ["رقم الفاتورة", "الغرفة", "القسم", "العميل", "الكاشير", "البداية", "النهاية", "المدة (د)", "وقت", "طلبات", "خصم", "دين", "المجموع", "الدفع", "الحالة"]
-    : ["Invoice", "Room", "Zone", "Customer", "Cashier", "Start", "End", "Duration(m)", "Time", "Orders", "Discount", "Debt", "Total", "Payment", "Status"];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ExcelJS = (await import("exceljs")).default as any;
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(isAr ? "السجل اليومي" : "Invoice History");
+  ws.views = [{ rightToLeft: isAr }];
 
-  const rows = records.map((h) => [
-    h.invoiceNo ?? "----",
-    h.itemName,
-    h.zoneName,
-    h.customerName,
-    h.cashier ?? "",
-    new Date(h.startTime).toLocaleString(isAr ? "ar-SA" : "en-US"),
-    new Date(h.endTime).toLocaleString(isAr ? "ar-SA" : "en-US"),
-    Math.round(h.duration / 60000),
-    h.timePrice,
-    h.ordersTotal,
-    h.discount ?? 0,
-    h.debtAmount ?? 0,
-    h.total,
-    h.payMethod,
-    h.status ?? "paid",
-  ]);
+  ws.columns = [
+    { width: 5  }, { width: 10 }, { width: 12 }, { width: 9  }, { width: 9  },
+    { width: 7  }, { width: 16 }, { width: 12 }, { width: 16 }, { width: 7  },
+    { width: 10 }, { width: 10 }, { width: 8  }, { width: 13 }, { width: 13 },
+    { width: 12 }, { width: 10 },
+  ];
 
-  const csv = [headers, ...rows]
-    .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
+  const P = {
+    dark: "FF0F2A1D", h1: "FF1B4332", h2: "FF2D6A4F",
+    greenL: "FFDCFCE7", blueL: "FFDBEAFE", amberL: "FFFEF9C3", redL: "FFFEE2E2",
+    row1: "FFF9F8F6", row2: "FFFFFFFF",
+    text: "FF111827", muted: "FF6B7280", border: "FFE8E4DF",
+    white: "FFFFFFFF", green: "FF059669", greenT: "FF166534",
+    blueT: "FF1E40AF", goldT: "FF92400E", red: "FFDC2626",
+  };
+  const NC = 17;
 
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sty = (cell: any, o: { bold?: boolean; sz?: number; fg?: string; bg?: string; al?: "left"|"center"|"right" }) => {
+    cell.font = { bold: o.bold, size: o.sz ?? 10, color: { argb: o.fg ?? P.text }, name: "Arial" };
+    if (o.bg) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: o.bg } };
+    cell.alignment = { horizontal: o.al ?? "right", vertical: "middle", readingOrder: "rightToLeft" };
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const brd = (cell: any) => { const b = { style: "thin", color: { argb: P.border } }; cell.border = { top: b, bottom: b, left: b, right: b }; };
+
+  // ── Title ──
+  ws.mergeCells(1, 1, 1, NC);
+  const t1 = ws.getRow(1).getCell(1);
+  t1.value = isAr ? "📋 السجل اليومي — مركز الصملة للترفيه" : "📋 Invoice History — ALSAMLAH Entertainment Center";
+  sty(t1, { bold: true, sz: 14, fg: P.white, bg: P.dark, al: "center" }); ws.getRow(1).height = 28;
+
+  ws.mergeCells(2, 1, 2, NC);
+  const t2 = ws.getRow(2).getCell(1);
+  t2.value = `${records.length} ${isAr ? "فاتورة" : "invoices"} · ${new Date().toLocaleDateString(isAr ? "ar-SA" : "en-US")} · ${isAr ? "مركز الصملة" : "ALSAMLAH"}`;
+  sty(t2, { sz: 9, fg: "FF94A3B8", bg: "FF1E293B", al: "center" }); ws.getRow(2).height = 16;
+
+  // ── Column headers (row 4) ──
+  const hdrs = isAr
+    ? ["#", "فاتورة", "التاريخ", "بداية", "نهاية", "مدة", "الغرفة", "القسم", "العميل", "👤", "وقت ﷼", "طلبات ﷼", "خصم ﷼", "المجموع ﷼", "طريقة الدفع", "الكاشير", "الحالة"]
+    : ["#", "Invoice", "Date", "Start", "End", "Dur", "Room", "Zone", "Customer", "Pax", "Time ﷼", "Orders ﷼", "Disc ﷼", "Total ﷼", "Payment", "Cashier", "Status"];
+  hdrs.forEach((h, i) => {
+    const cell = ws.getRow(4).getCell(i + 1);
+    cell.value = h;
+    sty(cell, { bold: true, sz: 9, fg: "FFE2E8F0", bg: "FF1E293B", al: "center" });
+    brd(cell);
+  });
+  ws.getRow(4).height = 20;
+
+  // ── Data rows (start row 5) ──
+  const sorted = [...records].sort((a, b) => b.endTime - a.endTime);
+  let gTotal = 0, gTime = 0, gOrders = 0, gDisc = 0;
+
+  sorted.forEach((h, i) => {
+    const row = ws.getRow(5 + i);
+    const dEnd = new Date(h.endTime), dStart = new Date(h.startTime);
+    const bg = i % 2 === 0 ? P.row1 : P.row2;
+    const paid = !h.status || h.status === "paid";
+    const payBg = h.payMethod === "cash" ? P.greenL : h.payMethod === "card" ? P.blueL : P.amberL;
+    const payFg = h.payMethod === "cash" ? P.greenT : h.payMethod === "card" ? P.blueT : P.goldT;
+    const payLbl = h.payMethod === "cash" ? (isAr ? "💵 نقد" : "💵 Cash") : h.payMethod === "card" ? (isAr ? "💳 شبكة" : "💳 Card") : (isAr ? "🔄 تحويل" : "🔄 Transfer");
+    const stBg = paid ? P.greenL : P.amberL;
+    const stFg = paid ? P.greenT : P.goldT;
+    const stLbl = paid ? (isAr ? "✅ مدفوع" : "✅ Paid") : (isAr ? "⏸ معلق" : "⏸ Held");
+
+    gTotal += h.total; gTime += h.timePrice; gOrders += h.ordersTotal; gDisc += h.discount ?? 0;
+
+    const vals  = [i + 1, h.invoiceNo ?? "----", dEnd.toLocaleDateString(isAr ? "ar-SA" : "en-US"), dStart.toLocaleTimeString(isAr ? "ar-SA" : "en-US", { hour: "2-digit", minute: "2-digit", hour12: true }), dEnd.toLocaleTimeString(isAr ? "ar-SA" : "en-US", { hour: "2-digit", minute: "2-digit", hour12: true }), Math.round(h.duration / 60000), h.itemName, h.zoneName, h.customerName || (isAr ? "زائر" : "Visitor"), h.playerCount || 1, h.timePrice, h.ordersTotal, h.discount || 0, h.total, payLbl, h.cashier || "-", stLbl];
+    const fgs   = [P.muted, "FF6366F1", P.text, P.text, P.text, P.muted, P.text, "FF6366F1", P.text, P.text, P.green, P.text, (h.discount ?? 0) > 0 ? P.red : P.muted, P.green, payFg, P.text, stFg];
+    const bgs   = [bg, bg, bg, bg, bg, bg, bg, bg, bg, bg, bg, bg, (h.discount ?? 0) > 0 ? P.amberL : bg, bg, payBg, bg, stBg];
+    const bolds = [false, true, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false];
+
+    vals.forEach((v, ci) => {
+      const cell = row.getCell(ci + 1);
+      cell.value = v;
+      sty(cell, { bold: bolds[ci], sz: 9, fg: fgs[ci], bg: bgs[ci], al: "center" });
+      brd(cell);
+    });
+    row.height = 17;
+  });
+
+  // ── Totals row ──
+  const tr = 5 + sorted.length;
+  ws.mergeCells(tr, 1, tr, 10);
+  const tc = ws.getRow(tr).getCell(1);
+  tc.value = isAr ? "✅ الإجمالي الكلي" : "✅ GRAND TOTAL";
+  sty(tc, { bold: true, sz: 10, fg: P.white, bg: P.dark, al: "center" });
+  [[gTime, 11, "FF22C55E"], [gOrders, 12, P.white], [gDisc, 13, "FFEF4444"], [gTotal, 14, "FF22C55E"]].forEach(([v, col, fg]) => {
+    const cell = ws.getRow(tr).getCell(col as number);
+    cell.value = `${v} ﷼`;
+    sty(cell, { bold: true, sz: 10, fg: fg as string, bg: P.dark, al: "center" });
+  });
+  ws.mergeCells(tr, 15, tr, NC);
+  sty(ws.getRow(tr).getCell(15), { bg: P.dark });
+  ws.getRow(tr).height = 22;
+
+  // ── Footer ──
+  ws.mergeCells(tr + 2, 1, tr + 2, NC);
+  const fc = ws.getRow(tr + 2).getCell(1);
+  fc.value = isAr ? `مركز الصملة للترفيه — تصدير ${new Date().toLocaleDateString("ar-SA")}` : `ALSAMLAH Entertainment Center — Export ${new Date().toLocaleDateString("en-US")}`;
+  sty(fc, { sz: 9, fg: "FF94A3B8", bg: P.dark, al: "center" }); ws.getRow(tr + 2).height = 16;
+
+  // ── Download ──
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `history-${Date.now()}.csv`;
+  a.download = `سجل_${new Date().toISOString().slice(0, 10)}.xlsx`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
@@ -473,7 +557,7 @@ export default function HistoryView({ history, settings, logo, isManager, onEdit
           <button onClick={() => selectPeriodGroup("month")} className="btn px-2 py-1 text-xs" style={{ color: "var(--text2)" }}>{t.selectMonth}</button>
           <button onClick={clearSel} className="btn px-2 py-1 text-xs" style={{ color: "var(--text2)" }}>{t.clearSelection}</button>
           <div className="ms-auto flex gap-2">
-            <button onClick={() => exportCsv(selectedRecords.length > 0 ? selectedRecords : filtered, settings.lang)}
+            <button onClick={() => exportXlsx(selectedRecords.length > 0 ? selectedRecords : filtered, settings.lang)}
               className="btn px-3 py-1.5 text-xs"
               style={{ color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 20%, transparent)" }}>
               📊 {t.exportCsv}
@@ -497,7 +581,7 @@ export default function HistoryView({ history, settings, logo, isManager, onEdit
       {/* Export CSV button (when not in bulk mode) */}
       {!bulkMode && filtered.length > 0 && (
         <div className="flex justify-end mb-3">
-          <button onClick={() => exportCsv(filtered, settings.lang)}
+          <button onClick={() => exportXlsx(filtered, settings.lang)}
             className="btn px-3 py-1.5 text-xs"
             style={{ color: "var(--text2)", borderColor: "var(--border)" }}>
             📊 {t.exportCsv}
