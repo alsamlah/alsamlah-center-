@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, MATCH_PRICE } from "@/lib/defaults";
+import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, MATCH_PRICE, TIER_GRACE_MINUTES } from "@/lib/defaults";
 import { DEFAULT_SETTINGS, FONTS, FONT_SIZES, THEMES, T } from "@/lib/settings";
 import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament, InspectionRegister } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
@@ -342,29 +342,65 @@ export default function CashierSystem() {
     if (!sess) return { remaining: 0, elapsed: 0, progress: 1, timePrice: 0, ordersTotal: 0, total: 0, isOvertime: false, isOpen: false, graceMins: 0 };
     const elapsed = now - sess.startTime;
     const ords = orders[itemId] || [], ordersTotal = ords.reduce((s, o) => s + o.price, 0);
-    // ── Match session: flat fixed price, always open (counts up) ──
+    const info = getInfo(itemId), zone = info?.zone;
+    const grace = sess.graceMins || 0;
+
+    // ── Match session: flat fixed price ──
     if (sess.sessionType === "match") {
       return { remaining: elapsed, elapsed, progress: -1, timePrice: MATCH_PRICE, ordersTotal, total: MATCH_PRICE + ordersTotal, isOvertime: false, isOpen: true, graceMins: 0 };
     }
-    // ── PlayStation / hourly session ──
-    const info = getInfo(itemId), pph = info?.zone?.pricePerHour || 0, minC = info?.zone?.minCharge || 0;
-    const elMins = elapsed / 60000, grace = sess.graceMins || 0, isOpen = sess.durationMins === 0;
+
+    // ── Boxing: per-hit pricing ──
+    if (zone?.pricingMode === "per-hit") {
+      const hits = sess.playerCount || 1;
+      const timePrice = Math.round(hits * (zone.hitPrice || 7.5) * 10) / 10;
+      return { remaining: 0, elapsed, progress: 1, timePrice, ordersTotal, total: timePrice + ordersTotal, isOvertime: false, isOpen: false, graceMins: 0 };
+    }
+
+    // ── Tiered pricing ──
+    const elMins = elapsed / 60000, isOpen = sess.durationMins === 0;
     let remaining = 0, progress = 1, isOvertime = false;
     if (!isOpen) { const ta = sess.durationMins + grace; remaining = (ta * 60000) - elapsed; progress = ta > 0 ? Math.max(0, Math.min(1, remaining / (ta * 60000))) : 1; isOvertime = remaining <= 0; }
     else { remaining = elapsed; progress = -1; }
-    const billMins = Math.max(elMins - grace, 0), chargeMins = Math.max(billMins, minC);
-    const timePrice = pph > 0 ? Math.ceil((chargeMins / 60) * pph) : 0;
+
+    let timePrice = 0;
+    const tiers = zone?.priceTiers;
+    if (tiers?.length) {
+      // Fixed duration → use exact tier price
+      if (!isOpen && sess.durationMins > 0) {
+        const tier = tiers.find((t) => t.minutes === sess.durationMins);
+        timePrice = tier ? tier.price : tiers[tiers.length - 1].price;
+      } else {
+        // Open session → find tier based on elapsed + grace
+        const billable = Math.max(elMins - grace, 0);
+        const sorted = [...tiers].sort((a, b) => a.minutes - b.minutes);
+        timePrice = sorted[0]?.price ?? 0;
+        for (const tier of sorted) {
+          if (billable <= tier.minutes + TIER_GRACE_MINUTES) { timePrice = tier.price; break; }
+          timePrice = tier.price;
+        }
+      }
+    } else {
+      // Fallback: hourly calculation
+      const pph = zone?.pricePerHour || 0, minC = zone?.minCharge || 0;
+      const billMins = Math.max(elMins - grace, 0), chargeMins = Math.max(billMins, minC);
+      timePrice = pph > 0 ? Math.ceil((chargeMins / 60) * pph) : 0;
+    }
+
     return { remaining, elapsed, progress, timePrice, ordersTotal, total: timePrice + ordersTotal, isOvertime, isOpen, graceMins: grace };
   };
 
-  const startSession = (itemId: string, name: string, dur: number, pc: number, type: "ps" | "match" = "ps") => {
+  const startSession = (itemId: string, name: string, dur: number, pc: number, type: "ps" | "match" = "ps", phone?: string) => {
+    const info = getInfo(itemId);
+    const isBoxing = info?.zone?.pricingMode === "per-hit";
     const newSess: Session = {
       startTime: Date.now(),
       customerName: name || (settings.lang === "ar" ? "زائر" : "Guest"),
-      durationMins: type === "match" ? 0 : dur,
+      phone,
+      durationMins: type === "match" || isBoxing ? 0 : dur,
       graceMins: 0,
       playerCount: pc || 1,
-      sessionType: type,
+      sessionType: isBoxing ? "ps" : type,
     };
     setSessions((p) => ({ ...p, [itemId]: newSess }));
     const curOrders = orders[itemId] || [];
@@ -372,6 +408,44 @@ export default function CashierSystem() {
     // Supabase sync
     if (tenantId) syncSession(tenantId, branchId, itemId, newSess, curOrders).catch(() => {});
     notify(t.sessionStarted + " ✓");
+  };
+
+  // ── Switch Activity (tennis ↔ billiard) ──
+  const SWITCHABLE_ZONES = ["tennis", "billiard1", "billiard2"];
+
+  const switchActivity = (fromItemId: string, toItemId: string) => {
+    const sess = sessions[fromItemId];
+    if (!sess) return;
+    const fromInfo = getInfo(fromItemId);
+    const movedSess: Session = {
+      ...sess,
+      switchedFrom: { itemId: fromItemId, itemName: fromInfo?.name || fromItemId, switchedAt: Date.now() },
+    };
+    const movedOrders = orders[fromItemId] || [];
+    // Remove from old
+    setSessions((p) => { const n = { ...p }; delete n[fromItemId]; n[toItemId] = movedSess; return n; });
+    setOrders((p) => { const n = { ...p }; delete n[fromItemId]; n[toItemId] = movedOrders; return n; });
+    // Supabase: delete old + create new
+    if (tenantId) {
+      deleteSession(tenantId, fromItemId).catch(() => {});
+      syncSession(tenantId, branchId, toItemId, movedSess, movedOrders).catch(() => {});
+    }
+    setSelItem(toItemId);
+    notify(t.switchActivity + " ✓");
+  };
+
+  const getSwitchTargets = (itemId: string) => {
+    const info = getInfo(itemId);
+    if (!info || !SWITCHABLE_ZONES.includes(info.zone.id)) return [];
+    // Find available items in other switchable zones (not occupied)
+    const targets: { id: string; name: string; zoneName: string }[] = [];
+    for (const f of floors) for (const z of f.zones) {
+      if (!SWITCHABLE_ZONES.includes(z.id) || z.id === info.zone.id) continue;
+      for (const it of z.items) {
+        if (!sessions[it.id]) targets.push({ id: it.id, name: it.name, zoneName: z.name });
+      }
+    }
+    return targets;
   };
 
   const updatePlayerCount = (itemId: string, count: number) => {
@@ -416,11 +490,12 @@ export default function CashierSystem() {
     const invoiceNo = await getInvoiceNo();
     const record: HistoryRecord = {
       id: uid(), itemId, itemName: info?.name || "", zoneName: info?.zone?.name || "",
-      customerName: sess.customerName, startTime: sess.startTime, endTime: Date.now(),
+      customerName: sess.customerName, phone: sess.phone, startTime: sess.startTime, endTime: Date.now(),
       duration: tot.elapsed, timePrice: tot.timePrice, orders: orders[itemId] || [],
       ordersTotal: tot.ordersTotal, total: finalT, payMethod, debtAmount: debtAmt || 0,
       discount: discount || 0, graceMins: sess.graceMins || 0, playerCount: sess.playerCount || 1,
       cashier: user?.name || "", sessionType: sess.sessionType || "ps",
+      switchedFrom: sess.switchedFrom?.itemName,
       invoiceNo, status: "paid",
       branchId: appCtx?.branch?.id, branchName: appCtx?.branch?.name,
     };
@@ -876,7 +951,7 @@ export default function CashierSystem() {
         {view === "detail" && selItem && (() => {
           const info = getInfo(selItem);
           if (!info) return null;
-          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} />;
+          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} switchTargets={sessions[selItem] ? getSwitchTargets(selItem) : []} onSwitchActivity={switchActivity} />;
         })()}
 
         {view === "qr" && <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto"><QrOrdersPanel tenantId={tenantId} logo={logo} /></div>}
