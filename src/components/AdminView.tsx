@@ -84,25 +84,46 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
         ))}
       </div>
 
-      {/* ── Prices ── */}
+      {/* ── Prices (tiered) ── */}
       {tab === "prices" && floors.map((f) => (
         <div key={f.id} className="mb-5">
           <div className="text-xs font-semibold mb-2" style={{ color: "var(--text2)" }}>{f.name}</div>
-          {f.zones.filter((z) => z.pricePerHour > 0).map((z) => (
+          {f.zones.map((z) => (
             <div key={z.id} className="card p-4 mb-2">
-              <div className="flex items-center gap-2 mb-3"><span className="text-lg">{z.icon}</span><span className="text-sm font-bold" style={{ color: "var(--text)" }}>{z.name}</span></div>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.pricePerHour}</label>
-                  <input type="number" value={z.pricePerHour} onChange={(e) => setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, zones: fl.zones.map((zn) => zn.id === z.id ? { ...zn, pricePerHour: Number(e.target.value) } : zn) } : fl))}
-                    className="input" />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.minDuration}</label>
-                  <input type="number" value={z.minCharge} onChange={(e) => setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, zones: fl.zones.map((zn) => zn.id === z.id ? { ...zn, minCharge: Number(e.target.value) } : zn) } : fl))}
-                    className="input" />
-                </div>
+              <div className="flex items-center gap-2 mb-3"><span className="text-lg">{z.icon}</span><span className="text-sm font-bold" style={{ color: "var(--text)" }}>{z.name}</span>
+                {z.pricingMode === "per-hit" && <span className="badge text-xs" style={{ background: "color-mix(in srgb, var(--yellow) 15%, transparent)", color: "var(--yellow)" }}>🥊 {t.perHit}</span>}
               </div>
+              {z.pricingMode === "per-hit" ? (
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.hitPrice}</label>
+                    <input type="number" step="0.5" value={z.hitPrice ?? 7.5} onChange={(e) => setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, zones: fl.zones.map((zn) => zn.id === z.id ? { ...zn, hitPrice: Number(e.target.value) } : zn) } : fl))}
+                      className="input" />
+                  </div>
+                </div>
+              ) : z.priceTiers?.length ? (
+                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.min(z.priceTiers.length, 5)}, 1fr)` }}>
+                  {z.priceTiers.map((tier) => {
+                    const lbl = tier.minutes >= 720 ? "يوم" : tier.minutes >= 60 ? `${tier.minutes / 60}س` : `${tier.minutes}د`;
+                    return (
+                      <div key={tier.minutes} className="text-center">
+                        <div className="text-[10px] mb-0.5" style={{ color: "var(--text2)" }}>{lbl}</div>
+                        <input type="number" value={tier.price}
+                          onChange={(e) => setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, zones: fl.zones.map((zn) => zn.id === z.id ? { ...zn, priceTiers: (zn.priceTiers ?? []).map((t2) => t2.minutes === tier.minutes ? { ...t2, price: Number(e.target.value) } : t2) } : zn) } : fl))}
+                          className="input text-center text-xs" style={{ padding: "4px 2px" }} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.pricePerHour}</label>
+                    <input type="number" value={z.pricePerHour} onChange={(e) => setFloors((p) => p.map((fl) => fl.id === f.id ? { ...fl, zones: fl.zones.map((zn) => zn.id === z.id ? { ...zn, pricePerHour: Number(e.target.value) } : zn) } : fl))}
+                      className="input" />
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

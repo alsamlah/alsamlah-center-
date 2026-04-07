@@ -187,6 +187,19 @@ export const T: Record<Language, Record<string, string>> = {
     regOk: "تعمل", regPending: "معلق", regIssue: "عطل",
     noEntries: "لا توجد سجلات", confirmDeleteEntry: "حذف هذا السجل؟",
     regSaved: "تم الحفظ", regDeleted: "تم الحذف",
+    // ── Tiered Pricing ──
+    perHit: "بالضربة", hitCount: "عدد الضربات", hitPrice: "سعر الضربة",
+    openDay: "يوم مفتوح", tierPrice: "سعر الفترة", addTier: "إضافة فترة",
+    extras: "إضافات",
+    // ── Phone + Switch + Reports ──
+    phoneNumber: "رقم الجوال", switchActivity: "تبديل النشاط", switchTo: "تبديل إلى",
+    switchedFromLabel: "تم التبديل من", availableItems: "العناصر المتاحة",
+    dashboard: "لوحة التحكم", summary: "ملخص", detailed: "تفصيلي",
+    totalRevenue: "إجمالي الإيرادات", sessionCount: "عدد الجلسات",
+    visitorCount: "عدد الزوار", avgBill: "متوسط الفاتورة",
+    revenueByZone: "الإيرادات بالمنطقة",
+    exportReport: "تصدير التقرير",
+    noData: "لا توجد بيانات", filterBy: "فلترة",
   },
   en: {
     appName: "ALSAMLAH",
@@ -313,5 +326,18 @@ export const T: Record<Language, Record<string, string>> = {
     regOk: "OK", regPending: "Pending", regIssue: "Issue",
     noEntries: "No entries yet", confirmDeleteEntry: "Delete this entry?",
     regSaved: "Saved", regDeleted: "Deleted",
+    // Tiered Pricing
+    perHit: "Per Hit", hitCount: "Hit Count", hitPrice: "Hit Price",
+    openDay: "Open Day", tierPrice: "Tier Price", addTier: "Add Tier",
+    extras: "Extras",
+    // Phone + Switch + Reports
+    phoneNumber: "Phone", switchActivity: "Switch Activity", switchTo: "Switch to",
+    switchedFromLabel: "Switched from", availableItems: "Available Items",
+    dashboard: "Dashboard", summary: "Summary", detailed: "Detailed",
+    totalRevenue: "Total Revenue", sessionCount: "Sessions",
+    visitorCount: "Visitors", avgBill: "Avg Bill",
+    revenueByZone: "Revenue by Zone", paymentMethods: "Payment Methods",
+    exportReport: "Export Report",
+    noData: "No data", filterBy: "Filter",
   },
 };
