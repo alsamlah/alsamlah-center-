@@ -54,10 +54,12 @@ export interface AppContext {
 export interface Session {
   startTime: number;
   customerName: string;
+  phone?: string;
   durationMins: number;
   graceMins: number;
   playerCount: number;
   sessionType?: "ps" | "match";
+  switchedFrom?: { itemId: string; itemName: string; switchedAt: number };
 }
 
 export interface MenuItem {
@@ -73,12 +75,20 @@ export interface OrderItem extends MenuItem {
   time: number;
 }
 
+export interface PriceTier {
+  minutes: number;
+  price: number;
+}
+
 export interface Zone {
   id: string;
   name: string;
   icon: string;
   pricePerHour: number;
   minCharge: number;
+  priceTiers?: PriceTier[];
+  pricingMode?: "hourly" | "tiered" | "per-hit";
+  hitPrice?: number;
   items: { id: string; name: string; sub?: string }[];
 }
 
@@ -94,6 +104,7 @@ export interface HistoryRecord {
   itemName: string;
   zoneName: string;
   customerName: string;
+  phone?: string;
   startTime: number;
   endTime: number;
   duration: number;
@@ -108,6 +119,7 @@ export interface HistoryRecord {
   playerCount: number;
   cashier: string;
   sessionType?: "ps" | "match";
+  switchedFrom?: string;                                 // item name if activity was switched
   invoiceNo?: string;                                    // zero-padded "0001", resets daily
   status?: "paid" | "held-occupied" | "held-free";      // undefined = "paid" (backward compat)
   branchId?: string;                                     // branch that created this record (optional for multi-branch filter)

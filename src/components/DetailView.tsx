@@ -12,9 +12,10 @@ import { printSession, type PrintType } from "@/lib/printReceipt";
 
 interface ItemInfo { id: string; name: string; sub?: string; zone: Zone; floor: Floor; }
 
+interface SwitchTarget { id: string; name: string; zoneName: string }
 interface Props {
   itemId: string; info: ItemInfo; session: Session | null; orders: OrderItem[]; menu: MenuItem[]; calc: CalcResult | null;
-  onBack: () => void; onStartSession: (id: string, name: string, dur: number, pc: number, type?: "ps" | "match") => void;
+  onBack: () => void; onStartSession: (id: string, name: string, dur: number, pc: number, type?: "ps" | "match", phone?: string) => void;
   onEndSession: (id: string, method: string, debt: number, disc: number) => Promise<string | void> | void;
   onAddOrder: (id: string, item: MenuItem) => void; onRemoveOrder: (id: string, oid: string) => void;
   onAddGrace: (id: string, mins: number) => void; onUpdatePlayerCount: (id: string, c: number) => void;
@@ -23,14 +24,18 @@ interface Props {
   getInvoiceNo?: () => Promise<string | number>;
   customers?: Customer[];
   onHoldSession?: (id: string, discount: number, keepOccupied: boolean) => Promise<void> | void;
+  switchTargets?: SwitchTarget[];
+  onSwitchActivity?: (fromItemId: string, toItemId: string) => void;
 }
 
-export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, settings, logo, getInvoiceNo, customers, onHoldSession }: Props) {
+export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, settings, logo, getInvoiceNo, customers, onHoldSession, switchTargets, onSwitchActivity }: Props) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuCat, setMenuCat] = useState("");
   const [selDur, setSelDur] = useState(30);
   const [selPc, setSelPc] = useState(1);
   const [custName, setCustName] = useState("");
+  const [custPhone, setCustPhone] = useState("");
+  const [showSwitch, setShowSwitch] = useState(false);
   const [discount, setDiscount] = useState("");
   const [debtAmt, setDebtAmt] = useState("");
   const [sessionType, setSessionType] = useState<"ps" | "match">("ps");
@@ -47,7 +52,21 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   const menuCats = [...new Set(menu.map((m) => m.cat))];
   const activeCat = menuCat || menuCats[0] || "";
 
-  const durLabels = [t.min30, t.hour1, t.hour2, t.hour3, t.openTime];
+  const isPerHit = info.zone.pricingMode === "per-hit";
+  const zoneTiers = info.zone.priceTiers ?? [];
+
+  // Filter DURATION_OPTS to only show durations that have matching tiers for this zone
+  const availableDurations = DURATION_OPTS.filter((d) => {
+    if (d.mins === 0) return true; // "مفتوح" always available
+    return zoneTiers.some((t) => t.minutes === d.mins);
+  });
+
+  // Build labels with prices
+  const durLabelsWithPrice = availableDurations.map((d) => {
+    const tier = zoneTiers.find((t) => t.minutes === d.mins);
+    if (tier) return `${d.label}\n${tier.price} ﷼`;
+    return d.label; // "مفتوح"
+  });
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-3xl mx-auto">
@@ -122,6 +141,13 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
             })()}
           </div>
 
+          {/* Phone number (optional) */}
+          <div className="mb-4">
+            <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>📱 {t.phoneNumber}</label>
+            <input type="tel" placeholder={t.phoneNumber + "..."} value={custPhone}
+              onChange={(e) => setCustPhone(e.target.value)} className="input" />
+          </div>
+
           {/* Session type toggle — only for rooms zone */}
           {isRoomsZone && (
             <div className="mb-4">
@@ -174,50 +200,65 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
             </>
           )}
 
-          {/* Duration picker — only for PS sessions */}
-          {sessionType === "ps" && (
+          {/* Duration picker — only for PS sessions, hidden for per-hit */}
+          {sessionType === "ps" && !isPerHit && (
             <div className="mb-4">
               <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>{t.duration}</label>
-              <div className="grid grid-cols-5 gap-2">
-                {DURATION_OPTS.map((d, i) => (
+              <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(availableDurations.length, 5)}, 1fr)` }}>
+                {availableDurations.map((d, i) => (
                   <button key={d.mins} onClick={() => setSelDur(d.mins)}
-                    className="btn py-3 text-xs"
+                    className="btn py-2 text-xs"
                     style={{
                       background: selDur === d.mins ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "var(--input-bg)",
                       color: selDur === d.mins ? "var(--accent)" : "var(--text2)",
                       borderColor: selDur === d.mins ? "color-mix(in srgb, var(--accent) 25%, transparent)" : "var(--border)",
+                      whiteSpace: "pre-line", lineHeight: 1.3,
                     }}>
-                    {durLabels[i]}
+                    {durLabelsWithPrice[i]}
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* People count */}
-          <div className="mb-5">
-            <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>
-              {isRoomsZone ? t.numPeople : t.players}
-            </label>
-            <div className="flex gap-2 flex-wrap">
-              {PLAYER_COUNTS.map((pc) => (
-                <button key={pc} onClick={() => setSelPc(pc)}
-                  className="btn w-11 h-11 text-sm"
-                  style={{
-                    background: selPc === pc ? "color-mix(in srgb, var(--blue) 12%, transparent)" : "var(--input-bg)",
-                    color: selPc === pc ? "var(--blue)" : "var(--text2)",
-                    borderColor: selPc === pc ? "color-mix(in srgb, var(--blue) 25%, transparent)" : "var(--border)",
-                  }}>
-                  {pc}
-                </button>
-              ))}
+          {/* Boxing: hit count input */}
+          {isPerHit && (
+            <div className="mb-4">
+              <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>🥊 {t.hitCount} ({info.zone.hitPrice ?? 7.5} ﷼/{t.perHit})</label>
+              <input type="number" min={1} value={selPc} onChange={(e) => setSelPc(Math.max(1, Number(e.target.value)))}
+                className="input w-24 text-center text-lg" />
+              <div className="text-sm mt-1 font-bold" style={{ color: "var(--accent)" }}>
+                {fmtMoney(selPc * (info.zone.hitPrice ?? 7.5))} ﷼
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* People count — hidden for boxing (uses hit count instead) */}
+          {!isPerHit && (
+            <div className="mb-5">
+              <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>
+                {isRoomsZone ? t.numPeople : t.players}
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {PLAYER_COUNTS.map((pc) => (
+                  <button key={pc} onClick={() => setSelPc(pc)}
+                    className="btn w-11 h-11 text-sm"
+                    style={{
+                      background: selPc === pc ? "color-mix(in srgb, var(--blue) 12%, transparent)" : "var(--input-bg)",
+                      color: selPc === pc ? "var(--blue)" : "var(--text2)",
+                      borderColor: selPc === pc ? "color-mix(in srgb, var(--blue) 25%, transparent)" : "var(--border)",
+                    }}>
+                    {pc}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <button
-            onClick={() => onStartSession(itemId, custName, selDur, selPc, isRoomsZone ? sessionType : "ps")}
+            onClick={() => onStartSession(itemId, custName, isPerHit ? 0 : selDur, selPc, isRoomsZone ? sessionType : "ps", custPhone || undefined)}
             className="btn btn-primary w-full py-3.5 text-sm"
             style={sessionType === "match" ? { background: "var(--green)", borderColor: "var(--green)" } : {}}>
-            {sessionType === "match" ? "⚽" : "▶"} {t.start}
+            {isPerHit ? "🥊" : sessionType === "match" ? "⚽" : "▶"} {t.start}
           </button>
         </div>
       ) : (
@@ -264,6 +305,40 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
               ))}</div>
             </div>
           </div>
+
+          {/* Switch Activity (tennis ↔ billiard only) */}
+          {switchTargets && switchTargets.length > 0 && onSwitchActivity && (
+            <div className="mb-3">
+              {!showSwitch ? (
+                <button className="btn w-full text-xs py-2" onClick={() => setShowSwitch(true)}
+                  style={{ background: "color-mix(in srgb, var(--blue) 10%, transparent)", color: "var(--blue)", borderColor: "color-mix(in srgb, var(--blue) 25%, transparent)" }}>
+                  🔄 {t.switchActivity}
+                </button>
+              ) : (
+                <div className="card p-3">
+                  <div className="text-xs font-semibold mb-2" style={{ color: "var(--text2)" }}>{t.switchTo}:</div>
+                  <div className="flex flex-wrap gap-2">
+                    {switchTargets.map((target) => (
+                      <button key={target.id} className="btn btn-primary text-xs py-1.5 px-3"
+                        onClick={() => { onSwitchActivity(itemId, target.id); setShowSwitch(false); }}>
+                        {target.zoneName} — {target.name}
+                      </button>
+                    ))}
+                  </div>
+                  <button className="btn text-xs mt-2" onClick={() => setShowSwitch(false)} style={{ color: "var(--text2)" }}>
+                    {isRTL ? "إلغاء" : "Cancel"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Switched from indicator */}
+          {session.switchedFrom && (
+            <div className="mb-3 text-xs px-3 py-2 rounded-lg" style={{ background: "color-mix(in srgb, var(--blue) 8%, transparent)", color: "var(--blue)" }}>
+              🔄 {t.switchedFromLabel}: {session.switchedFrom.itemName}
+            </div>
+          )}
 
           {/* Bill */}
           <div className="card p-5">
