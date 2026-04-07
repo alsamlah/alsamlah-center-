@@ -42,9 +42,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   const [pendingPay, setPendingPay] = useState<{ method: string; debt: number; disc: number; payMethods?: Array<{method:string;amount:number}>; splitCount?: number } | null>(null);
   const [splitCount, setSplitCount] = useState(1);
   const [splitPayMode, setSplitPayMode] = useState(false);
-  const [cashPart, setCashPart] = useState("");
-  const [cardPart, setCardPart] = useState("");
-  const [xfrPart, setXfrPart] = useState("");
+  const [splitParts, setSplitParts] = useState<Array<{amount: string; method: "cash" | "card" | "transfer"}>>([{ amount: "", method: "cash" }]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showHold, setShowHold] = useState(false);
   const [holdDisc, setHoldDisc] = useState("");
@@ -462,7 +460,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
 
             {/* تقسيم طريقة الدفع */}
             <div className="mb-4">
-              <button onClick={() => setSplitPayMode(v => !v)}
+              <button onClick={() => { setSplitPayMode(v => !v); setSplitParts([{ amount: "", method: "cash" }]); }}
                 className="btn w-full py-2 text-xs mb-3"
                 style={splitPayMode ? { background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)" } : { color: "var(--text2)" }}>
                 💰 {t.splitPayment ?? "تقسيم طريقة الدفع"} {splitPayMode ? "✓" : ""}
@@ -470,40 +468,68 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
 
               {splitPayMode ? (() => {
                 const totalDue = Math.max(0, (calc?.total || 0) - Number(discount||0) - Number(debtAmt||0));
-                const entered = Number(cashPart||0) + Number(cardPart||0) + Number(xfrPart||0);
+                const entered = splitParts.reduce((s, p) => s + (Number(p.amount) || 0), 0);
                 const remaining = totalDue - entered;
-                const isValid = Math.abs(remaining) < 0.01;
+                const isValid = Math.abs(remaining) < 0.01 && entered > 0;
+                const methodIcons: Record<string, string> = { cash: "💵", card: "💳", transfer: "📲" };
+                const methodLabels: Record<string, string> = { cash: t.cash, card: t.card, transfer: t.transfer };
                 return (
                   <div className="card p-3" style={{ background: "var(--input-bg)" }}>
-                    <div className="grid grid-cols-3 gap-2 mb-3">
-                      {[
-                        { key: "cash",     label: "💵 " + t.cash,     val: cashPart, set: setCashPart },
-                        { key: "card",     label: "💳 " + t.card,     val: cardPart, set: setCardPart },
-                        { key: "transfer", label: "📲 " + t.transfer, val: xfrPart,  set: setXfrPart },
-                      ].map(pm => (
-                        <div key={pm.key}>
-                          <div className="text-[10px] mb-1" style={{ color: "var(--text2)" }}>{pm.label}</div>
-                          <input type="number" value={pm.val} onChange={e => pm.set(e.target.value)} placeholder="0" className="input text-xs py-1.5" />
+                    <div className="flex flex-col gap-2 mb-3">
+                      {splitParts.map((part, i) => (
+                        <div key={i} className="flex gap-2 items-center">
+                          <span className="text-[10px] font-bold w-5 text-center shrink-0" style={{ color: "var(--text2)" }}>{i + 1}</span>
+                          <input
+                            type="number" min={0} placeholder="0"
+                            value={part.amount}
+                            onChange={e => setSplitParts(prev => prev.map((p, j) => j === i ? { ...p, amount: e.target.value } : p))}
+                            className="input text-sm py-1.5 flex-1"
+                            dir="ltr"
+                          />
+                          <select
+                            value={part.method}
+                            onChange={e => setSplitParts(prev => prev.map((p, j) => j === i ? { ...p, method: e.target.value as "cash"|"card"|"transfer" } : p))}
+                            className="input text-xs py-1.5 w-24 shrink-0">
+                            {(["cash","card","transfer"] as const).map(m => (
+                              <option key={m} value={m}>{methodIcons[m]} {methodLabels[m]}</option>
+                            ))}
+                          </select>
+                          {splitParts.length > 1 && (
+                            <button onClick={() => setSplitParts(prev => prev.filter((_, j) => j !== i))}
+                              className="btn px-2 py-1.5 text-xs shrink-0"
+                              style={{ color: "var(--red)", borderColor: "color-mix(in srgb, var(--red) 20%, transparent)" }}>✕</button>
+                          )}
                         </div>
                       ))}
                     </div>
-                    <div className="flex justify-between text-xs mb-3" style={{ color: remaining > 0.01 ? "var(--red)" : remaining < -0.01 ? "var(--yellow)" : "var(--green)" }}>
-                      <span>{t.paymentTotal ?? "المجموع المدخل"}: {fmtMoney(entered)} <SarSymbol size={10} /></span>
-                      {!isValid && <span>⚠️ {t.paymentRemaining ?? "يتبقى"}: {fmtMoney(Math.abs(remaining))} <SarSymbol size={10} /></span>}
+
+                    <button onClick={() => setSplitParts(prev => [...prev, { amount: "", method: "cash" }])}
+                      className="btn btn-ghost w-full py-1.5 text-xs mb-3">
+                      ➕ {isRTL ? "إضافة دفعة" : "Add payment"}
+                    </button>
+
+                    <div className="flex justify-between items-center text-xs mb-3 px-1">
+                      <span style={{ color: "var(--text2)" }}>{t.paymentTotal ?? "المجموع المدخل"}: <span className="font-bold" style={{ color: "var(--text)" }}>{fmtMoney(entered)}</span> / {fmtMoney(totalDue)} <SarSymbol size={10} /></span>
+                      {!isValid && entered > 0 && (
+                        <span style={{ color: remaining > 0 ? "var(--red)" : "var(--yellow)" }}>
+                          ⚠️ {remaining > 0 ? (t.paymentRemaining ?? "يتبقى") : (isRTL ? "زيادة" : "Over")}: {fmtMoney(Math.abs(remaining))} <SarSymbol size={10} />
+                        </span>
+                      )}
+                      {isValid && <span style={{ color: "var(--green)" }}>✓ {isRTL ? "مكتمل" : "Complete"}</span>}
                     </div>
+
                     <button
-                      disabled={!isValid || entered === 0}
+                      disabled={!isValid}
                       onClick={() => {
-                        const methods: Array<{method:string;amount:number}> = [];
-                        if (Number(cashPart) > 0) methods.push({method:"cash",   amount:Number(cashPart)});
-                        if (Number(cardPart) > 0) methods.push({method:"card",   amount:Number(cardPart)});
-                        if (Number(xfrPart)  > 0) methods.push({method:"transfer",amount:Number(xfrPart)});
-                        const primary = methods.sort((a,b)=>b.amount-a.amount)[0]?.method ?? "cash";
+                        const methods = splitParts
+                          .filter(p => Number(p.amount) > 0)
+                          .map(p => ({ method: p.method, amount: Number(p.amount) }));
+                        const primary = [...methods].sort((a,b) => b.amount - a.amount)[0]?.method ?? "cash";
                         setPendingPay({ method: primary, debt: Number(debtAmt)||0, disc: Number(discount)||0, payMethods: methods, splitCount: splitCount > 1 ? splitCount : undefined });
                       }}
                       className="btn btn-primary w-full py-3 text-sm"
-                      style={!isValid || entered === 0 ? { opacity: 0.4 } : {}}>
-                      ✅ {t.confirmRefund ?? "تأكيد الدفع"}
+                      style={!isValid ? { opacity: 0.4 } : {}}>
+                      ✅ {isRTL ? "تأكيد الدفع" : "Confirm Payment"}
                     </button>
                   </div>
                 );
