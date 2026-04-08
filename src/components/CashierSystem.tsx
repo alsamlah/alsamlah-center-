@@ -636,27 +636,38 @@ export default function CashierSystem() {
     else { remaining = elapsed; progress = -1; }
 
     let timePrice = 0;
-    const tiers = zone?.priceTiers;
-    if (tiers?.length) {
-      // Fixed duration → use exact tier price
-      if (!isOpen && sess.durationMins > 0) {
-        const tier = tiers.find((t) => t.minutes === sess.durationMins);
-        timePrice = tier ? tier.price : tiers[tiers.length - 1].price;
-      } else {
-        // Open session → find tier based on elapsed + grace
-        const billable = Math.max(elMins - grace, 0);
-        const sorted = [...tiers].sort((a, b) => a.minutes - b.minutes);
-        timePrice = sorted[0]?.price ?? 0;
-        for (const tier of sorted) {
-          if (billable <= tier.minutes + TIER_GRACE_MINUTES) { timePrice = tier.price; break; }
-          timePrice = tier.price;
-        }
+
+    // ── Multi-segment pricing (switched activities) ──
+    if (sess.pricingSegments && sess.pricingSegments.length > 0) {
+      for (const seg of sess.pricingSegments) {
+        const segEnd = seg.endTime || now;
+        const segDur = Math.max(0, (segEnd - seg.startTime) / 60000);
+        timePrice += seg.pricePerHour > 0 ? Math.ceil((segDur / 60) * seg.pricePerHour) : 0;
       }
     } else {
-      // Fallback: hourly calculation
-      const pph = zone?.pricePerHour || 0, minC = zone?.minCharge || 0;
-      const billMins = Math.max(elMins - grace, 0), chargeMins = Math.max(billMins, minC);
-      timePrice = pph > 0 ? Math.ceil((chargeMins / 60) * pph) : 0;
+      // ── Single-zone pricing (no switch) ──
+      const tiers = zone?.priceTiers;
+      if (tiers?.length) {
+        // Fixed duration → use exact tier price
+        if (!isOpen && sess.durationMins > 0) {
+          const tier = tiers.find((t) => t.minutes === sess.durationMins);
+          timePrice = tier ? tier.price : tiers[tiers.length - 1].price;
+        } else {
+          // Open session → find tier based on elapsed + grace
+          const billable = Math.max(elMins - grace, 0);
+          const sorted = [...tiers].sort((a, b) => a.minutes - b.minutes);
+          timePrice = sorted[0]?.price ?? 0;
+          for (const tier of sorted) {
+            if (billable <= tier.minutes + TIER_GRACE_MINUTES) { timePrice = tier.price; break; }
+            timePrice = tier.price;
+          }
+        }
+      } else {
+        // Fallback: hourly calculation
+        const pph = zone?.pricePerHour || 0, minC = zone?.minCharge || 0;
+        const billMins = Math.max(elMins - grace, 0), chargeMins = Math.max(billMins, minC);
+        timePrice = pph > 0 ? Math.ceil((chargeMins / 60) * pph) : 0;
+      }
     }
 
     return { remaining, elapsed, progress, timePrice, ordersTotal, total: timePrice + ordersTotal, isOvertime, isOpen, graceMins: grace };
@@ -686,21 +697,52 @@ export default function CashierSystem() {
   };
 
   // ── Switch Activity (tennis ↔ billiard) ──
-  const SWITCHABLE_ZONES = ["tennis", "billiard1", "billiard2"];
-
   const switchActivity = (fromItemId: string, toItemId: string) => {
     const sess = sessions[fromItemId];
     if (!sess) return;
     const fromInfo = getInfo(fromItemId);
+    const toInfo = getInfo(toItemId);
+    const switchTime = Date.now();
+
+    // Build pricing segments: close current segment + open new one
+    const existingSegments: import("@/lib/supabase").PricingSegment[] = sess.pricingSegments || [];
+    // If no segments yet, create the initial one (from session start until now)
+    if (existingSegments.length === 0 && fromInfo) {
+      existingSegments.push({
+        zoneId: fromInfo.zone.id,
+        zoneName: fromInfo.zone.name,
+        itemId: fromItemId,
+        itemName: fromInfo.name,
+        pricePerHour: fromInfo.zone.pricePerHour,
+        startTime: sess.startTime,
+      });
+    }
+    // Close the last segment
+    if (existingSegments.length > 0) {
+      existingSegments[existingSegments.length - 1].endTime = switchTime;
+    }
+    // Add new segment for the target activity
+    const newSegments = [
+      ...existingSegments,
+      {
+        zoneId: toInfo?.zone.id || "",
+        zoneName: toInfo?.zone.name || "",
+        itemId: toItemId,
+        itemName: toInfo?.name || toItemId,
+        pricePerHour: toInfo?.zone.pricePerHour || 0,
+        startTime: switchTime,
+      },
+    ];
+
     const movedSess: Session = {
       ...sess,
-      switchedFrom: { itemId: fromItemId, itemName: fromInfo?.name || fromItemId, switchedAt: Date.now() },
+      switchedFrom: { itemId: fromItemId, itemName: fromInfo?.name || fromItemId, switchedAt: switchTime },
+      pricingSegments: newSegments,
     };
     const movedOrders = orders[fromItemId] || [];
-    // Remove from old
+    // Remove from old, add to new
     setSessions((p) => { const n = { ...p }; delete n[fromItemId]; n[toItemId] = movedSess; return n; });
     setOrders((p) => { const n = { ...p }; delete n[fromItemId]; n[toItemId] = movedOrders; return n; });
-    // Supabase: delete old + create new
     if (tenantId) {
       deleteSession(tenantId, fromItemId).catch(() => {});
       syncSession(tenantId, branchId, toItemId, movedSess, movedOrders).catch(() => {});
@@ -711,13 +753,17 @@ export default function CashierSystem() {
 
   const getSwitchTargets = (itemId: string) => {
     const info = getInfo(itemId);
-    if (!info || !SWITCHABLE_ZONES.includes(info.zone.id)) return [];
-    // Find available items in other switchable zones (not occupied)
-    const targets: { id: string; name: string; zoneName: string }[] = [];
+    if (!info) return [];
+    // Allow switching to ANY available item in ANY zone (except same zone, walk-in, and counter)
+    const targets: { id: string; name: string; zoneName: string; pricePerHour: number }[] = [];
     for (const f of floors) for (const z of f.zones) {
-      if (!SWITCHABLE_ZONES.includes(z.id) || z.id === info.zone.id) continue;
+      if (z.id === info.zone.id) continue;
+      if (z.pricingMode === "walkin") continue;
+      if (f.id === COUNTER_FLOOR_ID) continue;
       for (const it of z.items) {
-        if (!sessions[it.id]) targets.push({ id: it.id, name: it.name, zoneName: z.name });
+        if (!sessions[it.id] && it.status !== "maintenance" && it.status !== "disabled") {
+          targets.push({ id: it.id, name: it.name, zoneName: z.name, pricePerHour: z.pricePerHour });
+        }
       }
     }
     return targets;

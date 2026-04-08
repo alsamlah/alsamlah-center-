@@ -12,7 +12,7 @@ import { printSession, type PrintType } from "@/lib/printReceipt";
 
 interface ItemInfo { id: string; name: string; sub?: string; zone: Zone; floor: Floor; }
 
-interface SwitchTarget { id: string; name: string; zoneName: string }
+interface SwitchTarget { id: string; name: string; zoneName: string; pricePerHour?: number }
 interface Props {
   itemId: string; info: ItemInfo; session: Session | null; orders: OrderItem[]; menu: MenuItem[]; calc: CalcResult | null;
   onBack: () => void; onStartSession: (id: string, name: string, dur: number, pc: number, type?: "ps" | "match" | "walkin", phone?: string) => void;
@@ -382,6 +382,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                       <button key={target.id} className="btn btn-primary text-xs py-1.5 px-3"
                         onClick={() => { onSwitchActivity(itemId, target.id); setShowSwitch(false); }}>
                         {target.zoneName} — {target.name}
+                        {target.pricePerHour ? <span style={{ opacity: 0.7, marginInlineStart: 4 }}>({target.pricePerHour}{isRTL ? "ر/س" : "/hr"})</span> : null}
                       </button>
                     ))}
                   </div>
@@ -393,10 +394,25 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
             </div>
           )}
 
-          {/* Switched from indicator */}
+          {/* Switched from indicator + pricing segments */}
           {session.switchedFrom && (
             <div className="mb-3 text-xs px-3 py-2 rounded-lg" style={{ background: "color-mix(in srgb, var(--blue) 8%, transparent)", color: "var(--blue)" }}>
               🔄 {t.switchedFromLabel}: {session.switchedFrom.itemName}
+              {session.pricingSegments && session.pricingSegments.length > 1 && (
+                <div style={{ marginTop: 6, borderTop: "1px solid color-mix(in srgb, var(--blue) 20%, transparent)", paddingTop: 6 }}>
+                  {session.pricingSegments.map((seg, i) => {
+                    const segEnd = seg.endTime || Date.now();
+                    const segMins = Math.round((segEnd - seg.startTime) / 60000);
+                    const segPrice = seg.pricePerHour > 0 ? Math.ceil((segMins / 60) * seg.pricePerHour) : 0;
+                    return (
+                      <div key={i} className="flex justify-between" style={{ marginBottom: 2 }}>
+                        <span>{seg.zoneName} — {seg.itemName} ({segMins}{isRTL ? "د" : "m"})</span>
+                        <span style={{ fontWeight: 700 }}>{segPrice} {isRTL ? "ر" : "SAR"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

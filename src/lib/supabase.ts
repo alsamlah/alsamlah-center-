@@ -51,6 +51,16 @@ export interface AppContext {
 }
 
 // ── Core data models ──
+export interface PricingSegment {
+  zoneId: string;
+  zoneName: string;
+  itemId: string;
+  itemName: string;
+  pricePerHour: number;
+  startTime: number;
+  endTime?: number;
+}
+
 export interface Session {
   startTime: number;
   customerName: string;
@@ -61,6 +71,7 @@ export interface Session {
   sessionType?: "ps" | "match" | "walkin";
   manualPrice?: number;
   switchedFrom?: { itemId: string; itemName: string; switchedAt: number };
+  pricingSegments?: PricingSegment[];
   prepaidAmount?: number;
   prepaidMethod?: string;
   prepaidAt?: number;
