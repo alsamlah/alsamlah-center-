@@ -215,6 +215,19 @@ export const T: Record<Language, Record<string, string>> = {
     correctedTotal: "المبلغ بعد التصحيح", refundRecorded: "تم تسجيل الاسترداد",
     totalRefunds: "إجمالي المستردات", netAfterRefunds: "الصافي بعد الاسترداد",
     persons: "أشخاص", splitMark: "مقسّمة",
+    // Payment methods
+    mada: "مدى", credit: "ائتماني",
+    madaRev: "مدى", creditRev: "ائتماني",
+    // Prepaid
+    prepay: "دفع مقدم", prepayConfirm: "تأكيد الدفع المقدم",
+    prepaidAmountLabel: "المدفوع مقدماً", remainingToPay: "المتبقي للدفع",
+    interimReceipt: "فاتورة مؤقتة", noAdditionalAmount: "لا يوجد مبلغ إضافي",
+    prepaidNote: "الجلسة لا تزال نشطة",
+    // Bank fees
+    bankFees: "الرسوم البنكية", madaFees: "رسوم مدى", creditFees: "رسوم الائتمانية",
+    totalBankFees: "إجمالي الرسوم البنكية", netAfterFees: "الصافي بعد الرسوم",
+    // VAT in EOD
+    vatBreakdown: "تفصيل الضريبة", preVatAmount: "قبل الضريبة (١٥٪)",
   },
   en: {
     appName: "ALSAMLAH",
@@ -369,5 +382,18 @@ export const T: Record<Language, Record<string, string>> = {
     correctedTotal: "Corrected total", refundRecorded: "Refund recorded",
     totalRefunds: "Total Refunds", netAfterRefunds: "Net after refunds",
     persons: "persons", splitMark: "Split",
+    // Payment methods
+    mada: "Mada", credit: "Credit",
+    madaRev: "Mada", creditRev: "Credit Card",
+    // Prepaid
+    prepay: "Advance Pay", prepayConfirm: "Confirm Advance Payment",
+    prepaidAmountLabel: "Prepaid Amount", remainingToPay: "Remaining to Pay",
+    interimReceipt: "Interim Receipt", noAdditionalAmount: "No additional amount",
+    prepaidNote: "Session still active",
+    // Bank fees
+    bankFees: "Bank Fees", madaFees: "Mada Fees", creditFees: "Credit Fees",
+    totalBankFees: "Total Bank Fees", netAfterFees: "Net After Fees",
+    // VAT in EOD
+    vatBreakdown: "VAT Breakdown", preVatAmount: "Before VAT (15%)",
   },
 };

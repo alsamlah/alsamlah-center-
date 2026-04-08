@@ -17,18 +17,6 @@ export default function QrOrdersPanel({ tenantId, logo }: Props) {
   const logoRef = useRef(logo);
   logoRef.current = logo;
 
-  // Short beep sound (base64 WAV, ~200ms)
-  const [sound] = useState(() =>
-    typeof window !== "undefined"
-      ? new Audio(
-          "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ" +
-          "oGAACBhYqFbF1fdJivrJBhNjVgodDbsGczG0qm3+LQeTobR6ni4tR/PB1Ir+bh0Xw4GEWs5eLU" +
-          "fzwhSrPp5Np1IBU+p9re2nI9H0a56+bdcjkdR7vt6d1yMhk/tOfi23QxFj6z5eLcdDQZP7bp4" +
-          "9xxMBY+subi3HQxGD6z5eLcdDQZPrXm4tx0MRg+s+Xi3HQ0GT625uLcdDEYPrPl4tx0NBk+tuX" +
-          "h3HQxGD6z5eLcdDQZPrbl4dx0MRg+s+Xi3HQ0GT625eHcdDEY"
-        )
-      : null
-  );
 
   // Register service worker + sync permission state on mount
   useEffect(() => {
@@ -68,9 +56,7 @@ export default function QrOrdersPanel({ tenantId, logo }: Props) {
       }, (payload) => {
         const newOrder = payload.new as QrOrder;
         setOrders((prev) => [newOrder, ...prev]);
-        // Sound
-        try { sound?.play(); } catch (_) { /* ignore */ }
-        // Browser notification
+        // Browser notification (sound handled globally in CashierSystem)
         const isExtend = newOrder.item_icon === "⏰";
         showOrderNotification({
           title: isExtend ? "⏰ طلب تمديد وقت" : `📱 طلب جديد — ${newOrder.room_name}`,
@@ -98,7 +84,7 @@ export default function QrOrdersPanel({ tenantId, logo }: Props) {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [sound, tenantId]);
+  }, [tenantId]);
 
   const updateStatus = async (id: string, status: string) => {
     await supabase.from("qr_orders").update({ status }).eq("id", id);
