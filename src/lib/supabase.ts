@@ -309,6 +309,8 @@ export interface Membership {
   id: string;
   customerId: string;
   customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
   planId: string;
   planName: string;
   startDate: number;
