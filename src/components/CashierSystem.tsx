@@ -119,6 +119,7 @@ export default function CashierSystem() {
     debts: false, specialGuests: false,
     membershipPlans: false, memberships: false, promotions: false,
     maintenanceLogs: false, bookings: false, customers: false,
+    floors: false, menu: false,
   });
 
   const t = T[settings.lang];
@@ -247,12 +248,14 @@ export default function CashierSystem() {
   // Supabase background syncs (non-blocking)
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    if (realtimeSkipRef.current.floors) { realtimeSkipRef.current.floors = false; return; }
     syncFloors(tenantId, branchId, floors).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [floors, tenantId]);
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    if (realtimeSkipRef.current.menu) { realtimeSkipRef.current.menu = false; return; }
     syncMenu(tenantId, branchId, menu).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menu, tenantId]);
@@ -396,7 +399,10 @@ export default function CashierSystem() {
     // Menu: any change → reload fresh menu from Supabase
     const menuSub = subscribeToMenu(tenantId, () => {
       loadMenu(tenantId).then((fresh) => {
-        if (fresh.length > 0) setMenu(fresh);
+        if (fresh.length > 0) {
+          realtimeSkipRef.current.menu = true;
+          setMenu(fresh);
+        }
       }).catch(() => {});
     });
 
@@ -404,6 +410,7 @@ export default function CashierSystem() {
     const floorsSub = subscribeToFloors(tenantId, () => {
       loadFloors(tenantId).then((fresh) => {
         if (fresh.length > 0) {
+          realtimeSkipRef.current.floors = true;
           const hasCounter = fresh.some((f) => f.id === COUNTER_FLOOR_ID);
           setFloors(hasCounter ? fresh : [...fresh, COUNTER_FLOOR]);
         }
