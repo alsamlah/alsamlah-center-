@@ -416,10 +416,44 @@ fmtD(milliseconds)       → "٠١:٢٣:٤٥" duration HH:MM:SS
 13. **Supabase writes**: Always write to localStorage first, then Supabase async — never block UI on Supabase
 14. **New tenant users**: Must use `create_tenant_for_user` RPC — never insert directly (RLS blocks it)
 15. **appCtx**: Always check `appCtx` is non-null before calling any `db.ts` function
+16. **Realtime sync is MANDATORY**: Every new feature that stores data MUST have full realtime sync (see pattern below). The manager monitors everything remotely — any data that doesn't sync is invisible and broken.
+17. **Skip flags prevent race conditions**: Every realtime subscription callback must set `realtimeSkipRef.current.feature = true` before `setState`, and every sync useEffect must check this flag. Without this, saves disappear within milliseconds.
 
 ---
 
 ## 🔄 Common Development Patterns
+
+### ⚡ Adding a new synced data type (CRITICAL — follow every step)
+
+Every new data type MUST include full realtime sync. Incomplete sync = broken feature.
+
+1. **Supabase table**: Create with RLS + `ALTER PUBLICATION supabase_realtime ADD TABLE {table}`
+2. **`supabase.ts`**: Add TypeScript interface
+3. **`db.ts`**: Add `sync{Feature}()`, `load{Feature}()`, `subscribeTo{Feature}()`
+4. **`CashierSystem.tsx`**:
+   a. `useState` + `localStorage` restore in init useEffect
+   b. Set from `loadTenantData()` response
+   c. `saveLS` useEffect for localStorage cache
+   d. Sync useEffect with **skip flag check**:
+      ```typescript
+      useEffect(() => {
+        if (!tenantId || dbLoading) return;
+        if (realtimeSkipRef.current.feature) { realtimeSkipRef.current.feature = false; return; }
+        syncFeature(tenantId, branchId, data).catch(() => {});
+      }, [data, tenantId]);
+      ```
+   e. Subscription in realtime useEffect with **skip flag set**:
+      ```typescript
+      const sub = subscribeToFeature(tenantId, () => {
+        loadFeature(tenantId).then((fresh) => {
+          realtimeSkipRef.current.feature = true;
+          setFeature(fresh);
+        }).catch(() => {});
+      });
+      ```
+   f. Add `sub.unsubscribe()` to cleanup
+   g. Add key to `realtimeSkipRef` initial value
+5. **Test**: Change on device A → appears on device B within 1-2 seconds
 
 ### Adding a new view/tab in AdminView
 1. Add tab to `tabs` array with `{ id: "...", label: "emoji label" }`
