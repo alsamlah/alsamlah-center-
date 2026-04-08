@@ -649,7 +649,85 @@ export function subscribeToFloors(tenantId: string, cb: RealtimeCallback) {
     .subscribe();
 }
 
+// ── Customers Realtime ───────────────────────────────────────────────────────
+
+export function subscribeToCustomers(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`customers:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "customers",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
+
+// ── Settings Realtime (for shifts sync) ──────────────────────────────────────
+
+export async function loadSettings(tenantId: string) {
+  const { data } = await supabase
+    .from("tenant_settings")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .limit(1)
+    .single();
+  return data;
+}
+
+export function subscribeToSettings(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`settings:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "tenant_settings",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
+
+// ── Shift sync (stored in tenant_settings JSONB) ─────────────────────────────
+
+export async function syncShift(
+  tenantId: string,
+  currentShift: unknown,
+  shiftHistory: unknown[],
+) {
+  try {
+    await supabase.from("tenant_settings").update({
+      current_shift: currentShift,
+      shift_history: shiftHistory.slice(0, 30),
+      updated_at: new Date().toISOString(),
+    }).eq("tenant_id", tenantId);
+  } catch { /* columns may not exist yet */ }
+}
+
+export async function loadShiftData(tenantId: string): Promise<{ currentShift: unknown; shiftHistory: unknown[] }> {
+  try {
+    const { data } = await supabase
+      .from("tenant_settings")
+      .select("current_shift, shift_history")
+      .eq("tenant_id", tenantId)
+      .limit(1)
+      .single();
+    return {
+      currentShift: data?.current_shift ?? null,
+      shiftHistory: (data?.shift_history as unknown[]) ?? [],
+    };
+  } catch {
+    return { currentShift: null, shiftHistory: [] };
+  }
+}
+
 // ── Bookings ─────────────────────────────────────────────────────────────────
+
+export async function loadBookings(tenantId: string): Promise<Booking[]> {
+  const { data } = await supabase.from("bookings").select("*").eq("tenant_id", tenantId);
+  const bookings = (data ?? []).map((r) => r.data as Booking);
+  if (bookings.length > 0) lsSet("als-bookings", bookings);
+  return bookings.length > 0 ? bookings : parse(ls("als-bookings"), []);
+}
 
 export async function syncBookings(tenantId: string, branchId: string | null, bookings: Booking[]) {
   lsSet("als-bookings", bookings);
@@ -677,6 +755,31 @@ export function subscribeToBookings(tenantId: string, cb: RealtimeCallback) {
 
 // ── Membership Plans ─────────────────────────────────────────────────────────
 
+export async function loadMembershipPlans(tenantId: string): Promise<MembershipPlan[]> {
+  const { data, error } = await supabase
+    .from("membership_plans")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .limit(1)
+    .single();
+  if (error || !data) return parse(ls("als-membership-plans"), []);
+  const plans = (data.data as MembershipPlan[]) ?? [];
+  lsSet("als-membership-plans", plans);
+  return plans;
+}
+
+export function subscribeToMembershipPlans(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`membership_plans:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "membership_plans",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
+
 export async function syncMembershipPlans(tenantId: string, branchId: string | null, plans: MembershipPlan[]) {
   lsSet("als-membership-plans", plans);
   try {
@@ -688,6 +791,25 @@ export async function syncMembershipPlans(tenantId: string, branchId: string | n
 }
 
 // ── Memberships ──────────────────────────────────────────────────────────────
+
+export async function loadMemberships(tenantId: string): Promise<Membership[]> {
+  const { data } = await supabase.from("memberships").select("*").eq("tenant_id", tenantId);
+  const memberships = (data ?? []).map((r) => r.data as Membership);
+  if (memberships.length > 0) lsSet("als-memberships", memberships);
+  return memberships.length > 0 ? memberships : parse(ls("als-memberships"), []);
+}
+
+export function subscribeToMemberships(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`memberships:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "memberships",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
 
 export async function syncMemberships(tenantId: string, branchId: string | null, memberships: Membership[]) {
   lsSet("als-memberships", memberships);
@@ -703,6 +825,31 @@ export async function syncMemberships(tenantId: string, branchId: string | null,
 
 // ── Promotions ───────────────────────────────────────────────────────────────
 
+export async function loadPromotions(tenantId: string): Promise<Promotion[]> {
+  const { data, error } = await supabase
+    .from("promotions")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .limit(1)
+    .single();
+  if (error || !data) return parse(ls("als-promotions"), []);
+  const promos = (data.data as Promotion[]) ?? [];
+  lsSet("als-promotions", promos);
+  return promos;
+}
+
+export function subscribeToPromotions(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`promotions:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "promotions",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
+
 export async function syncPromotions(tenantId: string, branchId: string | null, promotions: Promotion[]) {
   lsSet("als-promotions", promotions);
   try {
@@ -714,6 +861,25 @@ export async function syncPromotions(tenantId: string, branchId: string | null, 
 }
 
 // ── Maintenance Logs ─────────────────────────────────────────────────────────
+
+export async function loadMaintenanceLogs(tenantId: string): Promise<MaintenanceLog[]> {
+  const { data } = await supabase.from("maintenance_logs").select("*").eq("tenant_id", tenantId);
+  const logs = (data ?? []).map((r) => r.data as MaintenanceLog);
+  if (logs.length > 0) lsSet("als-maintenance-logs", logs);
+  return logs.length > 0 ? logs : parse(ls("als-maintenance-logs"), []);
+}
+
+export function subscribeToMaintenanceLogs(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`maintenance_logs:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "maintenance_logs",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
 
 export async function syncMaintenanceLogs(tenantId: string, branchId: string | null, logs: MaintenanceLog[]) {
   lsSet("als-maintenance-logs", logs);
