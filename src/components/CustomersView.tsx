@@ -152,6 +152,31 @@ export default function CustomersView({ customers, setCustomers, settings, notif
                       <span>📅 {isRTL ? "تاريخ التسجيل" : "Member since"}: {fmtDate(c.joinDate)}</span>
                     </div>
 
+                    {/* Notes (editable) */}
+                    <div className="mb-3">
+                      <label className="text-[10px] font-semibold mb-1 block" style={{ color: "var(--text2)" }}>📝 {t.customerNotes}</label>
+                      <textarea
+                        className="input w-full text-xs"
+                        rows={2}
+                        placeholder={t.customerNotes}
+                        value={c.notes || ""}
+                        onChange={(e) => {
+                          const updated = customers.map((x) => x.id === c.id ? { ...x, notes: e.target.value } : x);
+                          setCustomers(updated);
+                        }}
+                        style={{ resize: "vertical" }}
+                      />
+                    </div>
+
+                    {/* Linked debts */}
+                    {c.linkedDebtIds && c.linkedDebtIds.length > 0 && (
+                      <div className="mb-3 flex items-center gap-2 text-xs px-2.5 py-2 rounded-lg"
+                        style={{ background: "color-mix(in srgb, var(--red) 6%, transparent)", color: "var(--red)" }}>
+                        <span>📋</span>
+                        <span className="font-semibold">{t.linkedDebts}: {c.linkedDebtIds.length}</span>
+                      </div>
+                    )}
+
                     <div className="flex gap-2">
                       {c.phone && (
                         <a href={`https://wa.me/${c.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer"

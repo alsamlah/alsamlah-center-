@@ -31,9 +31,9 @@ interface Props {
 
 export default function AdminView({ floors, setFloors, menu, setMenu, pins, setPins, roleNames, setRoleNames, role, notify, onClearHistory, onClearDebts, settings, setSettings, logo, setLogo, tenantId }: Props) {
   const [tab, setTab] = useState("prices");
-  const [editItem, setEditItem] = useState<{ id: string; name: string; cat: string; icon: string; price: string } | null>(null);
+  const [editItem, setEditItem] = useState<{ id: string; name: string; cat: string; icon: string; price: string; trackStock?: boolean; stock?: number; lowStockThreshold?: number } | null>(null);
   const [editIconPicker, setEditIconPicker] = useState(false);
-  const [newMenuItem, setNewMenuItem] = useState({ name: "", price: "", cat: settings.lang === "ar" ? "مشروبات" : "Drinks", icon: "🥤" });
+  const [newMenuItem, setNewMenuItem] = useState({ name: "", price: "", cat: settings.lang === "ar" ? "مشروبات" : "Drinks", icon: "🥤", trackStock: false, stock: 0, lowStockThreshold: 5 });
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [showAddCat, setShowAddCat] = useState(false);
@@ -474,10 +474,34 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
                   className="btn btn-primary px-4 py-2 text-xs">{t.save}</button>
               </div>
             )}
+            {/* Stock tracking */}
+            <div className="mb-4">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={newMenuItem.trackStock} onChange={(e) => setNewMenuItem({ ...newMenuItem, trackStock: e.target.checked })}
+                  className="w-4 h-4 rounded accent-[var(--accent)]" />
+                <span className="text-xs font-medium" style={{ color: "var(--text2)" }}>📦 {t.trackStock}</span>
+              </label>
+            </div>
+            {newMenuItem.trackStock && (
+              <div className="flex gap-3 mb-4 anim-fade">
+                <div className="flex-1">
+                  <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.stock}</label>
+                  <input type="number" min="0" placeholder="0" value={newMenuItem.stock || ""} onChange={(e) => setNewMenuItem({ ...newMenuItem, stock: Number(e.target.value) })}
+                    className="input" />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.lowStockAlert}</label>
+                  <input type="number" min="0" placeholder="5" value={newMenuItem.lowStockThreshold || ""} onChange={(e) => setNewMenuItem({ ...newMenuItem, lowStockThreshold: Number(e.target.value) })}
+                    className="input" />
+                </div>
+              </div>
+            )}
             <button onClick={() => {
               if (newMenuItem.name && Number(newMenuItem.price) > 0) {
-                setMenu((p) => [...p, { id: `m${Date.now()}`, name: newMenuItem.name, price: Number(newMenuItem.price), cat: newMenuItem.cat, icon: newMenuItem.icon }]);
-                setNewMenuItem({ name: "", price: "", cat: newMenuItem.cat, icon: "🥤" }); notify(t.addedItem + " ✓");
+                const item: MenuItem = { id: `m${Date.now()}`, name: newMenuItem.name, price: Number(newMenuItem.price), cat: newMenuItem.cat, icon: newMenuItem.icon };
+                if (newMenuItem.trackStock) { item.trackStock = true; item.stock = newMenuItem.stock || 0; item.lowStockThreshold = newMenuItem.lowStockThreshold || 5; }
+                setMenu((p) => [...p, item]);
+                setNewMenuItem({ name: "", price: "", cat: newMenuItem.cat, icon: "🥤", trackStock: false, stock: 0, lowStockThreshold: 5 }); notify(t.addedItem + " ✓");
               }
             }} className="btn btn-primary w-full py-3 text-sm">+ {t.addItem}</button>
           </div>
@@ -510,9 +534,33 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
                           ))}
                         </div>
                       )}
+                      {/* Stock tracking (edit mode) */}
+                      <div className="mb-3">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input type="checkbox" checked={!!editItem.trackStock} onChange={(e) => setEditItem({ ...editItem, trackStock: e.target.checked })}
+                            className="w-4 h-4 rounded accent-[var(--accent)]" />
+                          <span className="text-xs font-medium" style={{ color: "var(--text2)" }}>📦 {t.trackStock}</span>
+                        </label>
+                      </div>
+                      {editItem.trackStock && (
+                        <div className="flex gap-3 mb-3 anim-fade">
+                          <div className="flex-1">
+                            <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.stock}</label>
+                            <input type="number" min="0" value={editItem.stock ?? 0} onChange={(e) => setEditItem({ ...editItem, stock: Number(e.target.value) })}
+                              className="input" />
+                          </div>
+                          <div className="flex-1">
+                            <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.lowStockAlert}</label>
+                            <input type="number" min="0" value={editItem.lowStockThreshold ?? 5} onChange={(e) => setEditItem({ ...editItem, lowStockThreshold: Number(e.target.value) })}
+                              className="input" />
+                          </div>
+                        </div>
+                      )}
                       <div className="flex gap-2">
                         <button onClick={() => {
-                          setMenu((p) => p.map((x) => x.id === m.id ? { ...x, name: editItem.name, price: Number(editItem.price), icon: editItem.icon } : x));
+                          const updated: Partial<MenuItem> = { name: editItem.name, price: Number(editItem.price), icon: editItem.icon, trackStock: !!editItem.trackStock };
+                          if (editItem.trackStock) { updated.stock = editItem.stock ?? 0; updated.lowStockThreshold = editItem.lowStockThreshold ?? 5; } else { updated.stock = undefined; updated.lowStockThreshold = undefined; }
+                          setMenu((p) => p.map((x) => x.id === m.id ? { ...x, ...updated } : x));
                           setEditItem(null); setEditIconPicker(false); notify(t.saved + " ✓");
                         }} className="btn btn-success flex-1 py-2.5 text-xs">✓ {t.save}</button>
                         <button onClick={() => { setEditItem(null); setEditIconPicker(false); }}
@@ -525,7 +573,18 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
                       <span className="text-lg">{m.icon}</span>
                       <span className="text-sm font-bold flex-1" style={{ color: "var(--text)" }}>{m.name}</span>
                       <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yellow)" }}>{m.price} <SarSymbol size={12} /></span>
-                      <button onClick={() => { setEditItem({ ...m, price: String(m.price) }); setEditIconPicker(false); }}
+                      {m.trackStock && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={
+                          (m.stock ?? 0) === 0
+                            ? { background: "color-mix(in srgb, var(--red) 15%, transparent)", color: "var(--red)" }
+                            : (m.stock ?? 0) <= (m.lowStockThreshold ?? 5)
+                              ? { background: "color-mix(in srgb, var(--yellow) 15%, transparent)", color: "var(--yellow)" }
+                              : { background: "color-mix(in srgb, var(--green) 10%, transparent)", color: "var(--green)" }
+                        }>
+                          {(m.stock ?? 0) === 0 ? t.outOfStock : (m.stock ?? 0) <= (m.lowStockThreshold ?? 5) ? `⚠️ ${t.lowStock}` : `📦 ${m.stock}`}
+                        </span>
+                      )}
+                      <button onClick={() => { setEditItem({ ...m, price: String(m.price), trackStock: m.trackStock, stock: m.stock, lowStockThreshold: m.lowStockThreshold }); setEditIconPicker(false); }}
                         className="btn px-2.5 py-1 text-[10px]"
                         style={{ background: "color-mix(in srgb, var(--blue) 10%, transparent)", color: "var(--blue)", borderColor: "color-mix(in srgb, var(--blue) 15%, transparent)" }}>
                         ✏️ {t.edit}
