@@ -20,7 +20,7 @@ interface Props {
 }
 
 type Period = "today" | "week" | "month" | "all";
-type StatsTab = "dashboard" | "summary" | "detailed";
+type StatsTab = "dashboard" | "summary" | "detailed" | "export";
 
 const ZONE_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
 const PAY_COLORS: Record<string, string> = { cash: "#22c55e", card: "#6366f1", transfer: "#f59e0b" };
@@ -534,7 +534,12 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
     dashboard: isRTL ? "لوحة التحكم" : "Dashboard",
     summary: isRTL ? "ملخص" : "Summary",
     detailed: isRTL ? "تفصيلي" : "Detailed",
+    export: isRTL ? "تصدير" : "Export",
   };
+  const [exportPeriod, setExportPeriod] = useState<"today" | "week" | "month" | "quarter" | "custom">("today");
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+  const [exportCopied, setExportCopied] = useState(false);
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-5xl mx-auto" dir={isRTL ? "rtl" : "ltr"}>
@@ -598,7 +603,7 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
 
       {/* Tabs */}
       <div className="flex gap-2 mb-5">
-        {(["dashboard", "summary", "detailed"] as StatsTab[]).map((st) => (
+        {(["dashboard", "summary", "detailed", ...(isManager ? ["export" as StatsTab] : [])] as StatsTab[]).map((st) => (
           <button key={st} onClick={() => setTab(st)}
             className="btn px-4 py-2 text-xs"
             style={tab === st ? {
@@ -606,7 +611,7 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
               color: "var(--accent)",
               borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)",
             } : { color: "var(--text2)" }}>
-            {st === "dashboard" ? "📊 " : st === "summary" ? "📋 " : "📄 "}{tabLabels[st]}
+            {st === "dashboard" ? "📊 " : st === "summary" ? "📋 " : st === "export" ? "📤 " : "📄 "}{tabLabels[st]}
           </button>
         ))}
       </div>
@@ -905,6 +910,167 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ══════════ TAB 4: EXPORT ══════════ */}
+      {tab === "export" && (
+        <div className="anim-fade">
+          <h3 className="text-base font-bold mb-4">📤 {isRTL ? "تصدير الإيرادات" : "Export Revenue"}</h3>
+
+          {/* Export Period Selection */}
+          <div className="card p-4 mb-4">
+            <div className="text-xs font-bold mb-3" style={{ color: "var(--text2)" }}>
+              {isRTL ? "اختر الفترة" : "Select Period"}
+            </div>
+            <div className="flex gap-2 flex-wrap mb-3">
+              {(["today", "week", "month", "quarter", "custom"] as const).map((ep) => (
+                <button key={ep} onClick={() => setExportPeriod(ep)}
+                  className="btn px-4 py-2 text-xs"
+                  style={exportPeriod === ep ? {
+                    background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+                    color: "var(--accent)",
+                    borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)",
+                  } : { color: "var(--text2)" }}>
+                  {ep === "today" ? (isRTL ? "يومي" : "Daily")
+                    : ep === "week" ? (isRTL ? "أسبوعي" : "Weekly")
+                    : ep === "month" ? (isRTL ? "شهري" : "Monthly")
+                    : ep === "quarter" ? (isRTL ? "ربع سنوي" : "Quarterly")
+                    : (isRTL ? "تخصيص" : "Custom")}
+                </button>
+              ))}
+            </div>
+            {exportPeriod === "custom" && (
+              <div className="flex gap-3 items-center flex-wrap">
+                <label className="text-xs" style={{ color: "var(--text2)" }}>{t.dateFrom}:</label>
+                <input type="date" className="input text-xs py-1.5 px-3" value={exportFrom} onChange={(e) => setExportFrom(e.target.value)} />
+                <label className="text-xs" style={{ color: "var(--text2)" }}>{t.dateTo}:</label>
+                <input type="date" className="input text-xs py-1.5 px-3" value={exportTo} onChange={(e) => setExportTo(e.target.value)} />
+              </div>
+            )}
+          </div>
+
+          {/* Export Preview */}
+          {(() => {
+            const now2 = Date.now();
+            const exportFiltered = history.filter((h) => {
+              const t2 = h.endTime;
+              if (exportPeriod === "today") return getBusinessDay(t2, eodHour) === getBusinessDay(now2, eodHour);
+              if (exportPeriod === "week") return t2 >= now2 - 7 * 86400000;
+              if (exportPeriod === "month") {
+                const d = new Date(t2), n = new Date();
+                return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
+              }
+              if (exportPeriod === "quarter") return t2 >= now2 - 90 * 86400000;
+              if (exportPeriod === "custom" && exportFrom && exportTo) {
+                const from = new Date(exportFrom).getTime();
+                const to = new Date(exportTo).getTime() + 86400000;
+                return t2 >= from && t2 <= to;
+              }
+              return true;
+            });
+            const exRev = exportFiltered.reduce((s, h) => s + h.total, 0);
+            const exCash = exportFiltered.filter((h) => h.payMethod === "cash").reduce((s, h) => s + h.total, 0);
+            const exCard = exportFiltered.filter((h) => h.payMethod === "card").reduce((s, h) => s + h.total, 0);
+            const exCredit = exportFiltered.filter((h) => h.payMethod === "credit").reduce((s, h) => s + h.total, 0);
+            const exTransfer = exportFiltered.filter((h) => h.payMethod === "transfer").reduce((s, h) => s + h.total, 0);
+            const exDebt = exportFiltered.reduce((s, h) => s + (h.debtAmount || 0), 0);
+            const exDiscount = exportFiltered.reduce((s, h) => s + (h.discount || 0), 0);
+            const exOrdersRev = exportFiltered.reduce((s, h) => s + h.ordersTotal, 0);
+            const exTimeRev = exportFiltered.reduce((s, h) => s + h.timePrice, 0);
+
+            const payload = {
+              period: exportPeriod,
+              periodFrom: exportPeriod === "custom" ? exportFrom : getBusinessDay(
+                exportPeriod === "today" ? now2
+                  : exportPeriod === "week" ? now2 - 7 * 86400000
+                  : exportPeriod === "month" ? new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime()
+                  : now2 - 90 * 86400000, eodHour),
+              periodTo: getBusinessDay(now2, eodHour),
+              sessionCount: exportFiltered.length,
+              totalRevenue: exRev,
+              cashRevenue: exCash,
+              cardRevenue: exCard,
+              creditRevenue: exCredit,
+              transferRevenue: exTransfer,
+              debtTotal: exDebt,
+              discountTotal: exDiscount,
+              ordersRevenue: exOrdersRev,
+              timeRevenue: exTimeRev,
+              netRevenue: exRev - exDiscount,
+              exportedAt: new Date().toISOString(),
+            };
+
+            return (
+              <div className="card p-4 mb-4">
+                <div className="text-xs font-bold mb-3" style={{ color: "var(--text2)" }}>
+                  {isRTL ? "ملخص التصدير" : "Export Summary"} ({exportFiltered.length} {isRTL ? "جلسة" : "sessions"})
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  {[
+                    { label: isRTL ? "إجمالي الإيراد" : "Total Revenue", value: fmtMoney(exRev), color: "var(--green)" },
+                    { label: isRTL ? "نقدي" : "Cash", value: fmtMoney(exCash), color: "var(--green)" },
+                    { label: t.mada, value: fmtMoney(exCard), color: "var(--blue)" },
+                    { label: t.credit, value: fmtMoney(exCredit), color: "var(--accent)" },
+                    { label: isRTL ? "تحويل" : "Transfer", value: fmtMoney(exTransfer), color: "var(--yellow)" },
+                    { label: isRTL ? "إيراد الوقت" : "Time Rev", value: fmtMoney(exTimeRev), color: "var(--text)" },
+                    { label: isRTL ? "إيراد الطلبات" : "Orders Rev", value: fmtMoney(exOrdersRev), color: "var(--text)" },
+                    { label: isRTL ? "خصومات" : "Discounts", value: fmtMoney(exDiscount), color: "var(--red)" },
+                  ].map((item, i) => (
+                    <div key={i} className="card p-3 text-center">
+                      <div className="text-lg font-bold" style={{ color: item.color }}>{item.value} <SarSymbol size={14} /></div>
+                      <div className="text-[10px]" style={{ color: "var(--text2)" }}>{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-3 flex-wrap">
+                  <button onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(() => {
+                      setExportCopied(true);
+                      setTimeout(() => setExportCopied(false), 3000);
+                    });
+                  }}
+                    className="btn flex-1 py-3 text-sm"
+                    style={{
+                      background: exportCopied ? "color-mix(in srgb, var(--green) 10%, transparent)" : "color-mix(in srgb, var(--accent) 10%, transparent)",
+                      color: exportCopied ? "var(--green)" : "var(--accent)",
+                      borderColor: exportCopied ? "color-mix(in srgb, var(--green) 25%, transparent)" : "color-mix(in srgb, var(--accent) 25%, transparent)",
+                    }}>
+                    {exportCopied ? `✅ ${isRTL ? "تم النسخ" : "Copied!"}` : `📋 ${isRTL ? "نسخ JSON" : "Copy JSON"}`}
+                  </button>
+
+                  {settings.scanTrackerEndpoint && (
+                    <button onClick={() => {
+                      fetch(settings.scanTrackerEndpoint!, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                      }).then(() => {
+                        setExportCopied(true);
+                        setTimeout(() => setExportCopied(false), 3000);
+                      }).catch(() => {
+                        navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+                        setExportCopied(true);
+                        setTimeout(() => setExportCopied(false), 3000);
+                      });
+                    }}
+                      className="btn flex-1 py-3 text-sm"
+                      style={{ background: "color-mix(in srgb, var(--green) 10%, transparent)", color: "var(--green)", borderColor: "color-mix(in srgb, var(--green) 25%, transparent)" }}>
+                      🚀 {isRTL ? "إرسال لـ ScanTracker" : "Send to ScanTracker"}
+                    </button>
+                  )}
+                </div>
+
+                {!settings.scanTrackerEndpoint && (
+                  <div className="text-[10px] mt-3" style={{ color: "var(--text2)" }}>
+                    💡 {isRTL ? "لربط ScanTracker: أضف رابط API في الإعدادات" : "To connect ScanTracker: add API URL in Settings"}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
