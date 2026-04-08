@@ -115,7 +115,11 @@ export default function CashierSystem() {
   // Track if we've loaded from Supabase for this tenant
   const loadedTenantRef = useRef<string | null>(null);
   // Suppress re-syncing data that arrived from realtime (prevents infinite loop)
-  const realtimeSkipRef = useRef({ debts: false, specialGuests: false });
+  const realtimeSkipRef = useRef({
+    debts: false, specialGuests: false,
+    membershipPlans: false, memberships: false, promotions: false,
+    maintenanceLogs: false, bookings: false, customers: false,
+  });
 
   const t = T[settings.lang];
   const isRTL = settings.lang === "ar";
@@ -275,36 +279,42 @@ export default function CashierSystem() {
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    if (realtimeSkipRef.current.customers) { realtimeSkipRef.current.customers = false; return; }
     syncCustomers(tenantId, branchId, customers).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, tenantId]);
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    if (realtimeSkipRef.current.bookings) { realtimeSkipRef.current.bookings = false; return; }
     syncBookings(tenantId, branchId, bookings).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookings, tenantId]);
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    if (realtimeSkipRef.current.membershipPlans) { realtimeSkipRef.current.membershipPlans = false; return; }
     syncMembershipPlans(tenantId, branchId, membershipPlans).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [membershipPlans, tenantId]);
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    if (realtimeSkipRef.current.memberships) { realtimeSkipRef.current.memberships = false; return; }
     syncMemberships(tenantId, branchId, memberships).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberships, tenantId]);
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    if (realtimeSkipRef.current.promotions) { realtimeSkipRef.current.promotions = false; return; }
     syncPromotions(tenantId, branchId, promotions).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promotions, tenantId]);
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    if (realtimeSkipRef.current.maintenanceLogs) { realtimeSkipRef.current.maintenanceLogs = false; return; }
     syncMaintenanceLogs(tenantId, branchId, maintenanceLogs).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maintenanceLogs, tenantId]);
@@ -402,32 +412,50 @@ export default function CashierSystem() {
 
     // Customers: any change → reload
     const customersSub = subscribeToCustomers(tenantId, () => {
-      loadCustomers(tenantId).then((fresh) => setCustomers(fresh)).catch(() => {});
+      loadCustomers(tenantId).then((fresh) => {
+        realtimeSkipRef.current.customers = true;
+        setCustomers(fresh);
+      }).catch(() => {});
     });
 
     // Bookings: any change → reload
     const bookingsSub = subscribeToBookings(tenantId, () => {
-      loadBookings(tenantId).then((fresh) => setBookings(fresh)).catch(() => {});
+      loadBookings(tenantId).then((fresh) => {
+        realtimeSkipRef.current.bookings = true;
+        setBookings(fresh);
+      }).catch(() => {});
     });
 
     // Membership Plans: any change → reload
     const plansSub = subscribeToMembershipPlans(tenantId, () => {
-      loadMembershipPlans(tenantId).then((fresh) => setMembershipPlans(fresh)).catch(() => {});
+      loadMembershipPlans(tenantId).then((fresh) => {
+        realtimeSkipRef.current.membershipPlans = true;
+        setMembershipPlans(fresh);
+      }).catch(() => {});
     });
 
     // Memberships: any change → reload
     const membershipsSub = subscribeToMemberships(tenantId, () => {
-      loadMemberships(tenantId).then((fresh) => setMemberships(fresh)).catch(() => {});
+      loadMemberships(tenantId).then((fresh) => {
+        realtimeSkipRef.current.memberships = true;
+        setMemberships(fresh);
+      }).catch(() => {});
     });
 
     // Promotions: any change → reload
     const promosSub = subscribeToPromotions(tenantId, () => {
-      loadPromotions(tenantId).then((fresh) => setPromotions(fresh)).catch(() => {});
+      loadPromotions(tenantId).then((fresh) => {
+        realtimeSkipRef.current.promotions = true;
+        setPromotions(fresh);
+      }).catch(() => {});
     });
 
     // Maintenance Logs: any change → reload
     const maintSub = subscribeToMaintenanceLogs(tenantId, () => {
-      loadMaintenanceLogs(tenantId).then((fresh) => setMaintenanceLogs(fresh)).catch(() => {});
+      loadMaintenanceLogs(tenantId).then((fresh) => {
+        realtimeSkipRef.current.maintenanceLogs = true;
+        setMaintenanceLogs(fresh);
+      }).catch(() => {});
     });
 
     // Settings (includes shifts): any change → reload shift data
