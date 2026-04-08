@@ -85,7 +85,8 @@ export default function MembershipsView({
 
   // ── Plan CRUD ──
   const savePlan = () => {
-    if (!planForm.name || !Number(planForm.price)) return;
+    if (!planForm.name.trim()) { notify(isRTL ? "أدخل اسم الخطة" : "Enter plan name"); return; }
+    if (!Number(planForm.price)) { notify(isRTL ? "أدخل سعر الخطة" : "Enter plan price"); return; }
     const plan: MembershipPlan = {
       id: editingPlanId || uid(),
       name: planForm.name,
@@ -549,12 +550,16 @@ export default function MembershipsView({
 
               <div style={{ display: "grid", gap: "0.75rem" }}>
                 {/* Name */}
-                <input
-                  className="input"
-                  placeholder={t.planName}
-                  value={planForm.name}
-                  onChange={(e) => setPlanForm((p) => ({ ...p, name: e.target.value }))}
-                />
+                <div>
+                  <label className="text-xs font-bold" style={{ color: "var(--text2)", display: "block", marginBottom: 4 }}>{t.planName} *</label>
+                  <input
+                    className="input"
+                    placeholder={isRTL ? "مثال: باقة شهرية ذهبية" : "e.g. Gold Monthly Plan"}
+                    value={planForm.name}
+                    onChange={(e) => setPlanForm((p) => ({ ...p, name: e.target.value }))}
+                    style={!planForm.name.trim() ? { borderColor: "color-mix(in srgb, var(--red) 30%, var(--border))" } : {}}
+                  />
+                </div>
 
                 {/* Type */}
                 <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -595,11 +600,13 @@ export default function MembershipsView({
                 </div>
 
                 {/* Price */}
+                <div>
+                  <label className="text-xs font-bold" style={{ color: "var(--text2)", display: "block", marginBottom: 4 }}>{t.planPrice} *</label>
                 <div style={{ position: "relative" }}>
                   <input
                     className="input"
                     type="number"
-                    placeholder={t.planPrice}
+                    placeholder={isRTL ? "مثال: 200" : "e.g. 200"}
                     value={planForm.price}
                     onChange={(e) => setPlanForm((p) => ({ ...p, price: e.target.value }))}
                     style={{ width: "100%", paddingInlineEnd: "2rem" }}
@@ -615,6 +622,7 @@ export default function MembershipsView({
                   >
                     <SarSymbol size={14} />
                   </span>
+                </div>
                 </div>
 
                 {/* Hours (if hours type) */}
