@@ -21,6 +21,13 @@ import {
   deleteHistoryRecord as deleteHistoryRecordDB,
   syncBookings, syncMembershipPlans, syncMemberships, syncPromotions, syncMaintenanceLogs,
   loadMenu, subscribeToMenu, loadFloors, subscribeToFloors,
+  subscribeToCustomers, loadCustomers,
+  subscribeToBookings, loadBookings,
+  subscribeToMembershipPlans, loadMembershipPlans,
+  subscribeToMemberships, loadMemberships,
+  subscribeToPromotions, loadPromotions,
+  subscribeToMaintenanceLogs, loadMaintenanceLogs,
+  subscribeToSettings, syncShift, loadShiftData,
 } from "@/lib/db";
 import AuthScreen from "./AuthScreen";
 import RoleSelectScreen from "./RoleSelectScreen";
@@ -194,6 +201,11 @@ export default function CashierSystem() {
       setSettings(data.settings);
       if (data.logo) setLogo(data.logo);
       setInvoiceCounter(data.invoiceCounter);
+      // Load shift data from Supabase (overrides localStorage)
+      loadShiftData(appCtx.tenant.id).then(({ currentShift: cs, shiftHistory: sh }) => {
+        if (cs !== undefined && cs !== null) setCurrentShift(cs as Shift);
+        if (sh && Array.isArray(sh) && sh.length > 0) setShiftHistory(sh as ShiftRecord[]);
+      }).catch(() => {});
       setDbLoading(false);
     });
   }, [appCtx]);
@@ -388,6 +400,44 @@ export default function CashierSystem() {
       }).catch(() => {});
     });
 
+    // Customers: any change → reload
+    const customersSub = subscribeToCustomers(tenantId, () => {
+      loadCustomers(tenantId).then((fresh) => setCustomers(fresh)).catch(() => {});
+    });
+
+    // Bookings: any change → reload
+    const bookingsSub = subscribeToBookings(tenantId, () => {
+      loadBookings(tenantId).then((fresh) => setBookings(fresh)).catch(() => {});
+    });
+
+    // Membership Plans: any change → reload
+    const plansSub = subscribeToMembershipPlans(tenantId, () => {
+      loadMembershipPlans(tenantId).then((fresh) => setMembershipPlans(fresh)).catch(() => {});
+    });
+
+    // Memberships: any change → reload
+    const membershipsSub = subscribeToMemberships(tenantId, () => {
+      loadMemberships(tenantId).then((fresh) => setMemberships(fresh)).catch(() => {});
+    });
+
+    // Promotions: any change → reload
+    const promosSub = subscribeToPromotions(tenantId, () => {
+      loadPromotions(tenantId).then((fresh) => setPromotions(fresh)).catch(() => {});
+    });
+
+    // Maintenance Logs: any change → reload
+    const maintSub = subscribeToMaintenanceLogs(tenantId, () => {
+      loadMaintenanceLogs(tenantId).then((fresh) => setMaintenanceLogs(fresh)).catch(() => {});
+    });
+
+    // Settings (includes shifts): any change → reload shift data
+    const settingsSub = subscribeToSettings(tenantId, () => {
+      loadShiftData(tenantId).then(({ currentShift: cs, shiftHistory: sh }) => {
+        if (cs !== undefined) setCurrentShift(cs as Shift | null);
+        if (sh) setShiftHistory(sh as ShiftRecord[]);
+      }).catch(() => {});
+    });
+
     return () => {
       sessionsSub.unsubscribe();
       historySub.unsubscribe();
@@ -397,6 +447,13 @@ export default function CashierSystem() {
       registersSub.unsubscribe();
       menuSub.unsubscribe();
       floorsSub.unsubscribe();
+      customersSub.unsubscribe();
+      bookingsSub.unsubscribe();
+      plansSub.unsubscribe();
+      membershipsSub.unsubscribe();
+      promosSub.unsubscribe();
+      maintSub.unsubscribe();
+      settingsSub.unsubscribe();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
@@ -833,6 +890,7 @@ export default function CashierSystem() {
   const openShift = (cashFloat: number) => {
     const shift: Shift = { id: uid(), openedAt: Date.now(), openedBy: user?.name || "", cashFloat };
     setCurrentShift(shift);
+    if (tenantId) syncShift(tenantId, shift, shiftHistory).catch(() => {});
     notify(t.shiftOpened + " ✓");
   };
 
@@ -918,9 +976,11 @@ export default function CashierSystem() {
         creditFees: creditFees > 0 ? creditFees : undefined,
       },
     };
-    setShiftHistory((p) => [record, ...p.slice(0, 29)]);
+    const newHistory = [record, ...shiftHistory.slice(0, 29)];
+    setShiftHistory(newHistory);
     setCurrentShift(null);
     setLastClosedShift(record);
+    if (tenantId) syncShift(tenantId, null, newHistory).catch(() => {});
     notify(t.shiftClosedMsg + " ✓");
   };
 
