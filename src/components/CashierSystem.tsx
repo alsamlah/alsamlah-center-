@@ -20,6 +20,7 @@ import {
   updateHistoryRecord as updateHistoryRecordDB,
   deleteHistoryRecord as deleteHistoryRecordDB,
   syncBookings, syncMembershipPlans, syncMemberships, syncPromotions, syncMaintenanceLogs,
+  loadMenu, subscribeToMenu, loadFloors, subscribeToFloors,
 } from "@/lib/db";
 import AuthScreen from "./AuthScreen";
 import RoleSelectScreen from "./RoleSelectScreen";
@@ -370,6 +371,23 @@ export default function CashierSystem() {
       }
     });
 
+    // Menu: any change → reload fresh menu from Supabase
+    const menuSub = subscribeToMenu(tenantId, () => {
+      loadMenu(tenantId).then((fresh) => {
+        if (fresh.length > 0) setMenu(fresh);
+      }).catch(() => {});
+    });
+
+    // Floors: any change → reload fresh floors from Supabase
+    const floorsSub = subscribeToFloors(tenantId, () => {
+      loadFloors(tenantId).then((fresh) => {
+        if (fresh.length > 0) {
+          const hasCounter = fresh.some((f) => f.id === COUNTER_FLOOR_ID);
+          setFloors(hasCounter ? fresh : [...fresh, COUNTER_FLOOR]);
+        }
+      }).catch(() => {});
+    });
+
     return () => {
       sessionsSub.unsubscribe();
       historySub.unsubscribe();
@@ -377,6 +395,8 @@ export default function CashierSystem() {
       specialGuestsSub.unsubscribe();
       tournamentsSub.unsubscribe();
       registersSub.unsubscribe();
+      menuSub.unsubscribe();
+      floorsSub.unsubscribe();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
@@ -691,11 +711,13 @@ export default function CashierSystem() {
       addHistoryRecord(tenantId, branchId, record).catch(() => {});
       deleteSession(tenantId, itemId).catch(() => {});
     }
+    let newDebtId: string | null = null;
     if ((debtAmt || 0) > 0) {
-      const newDebt = { id: uid(), name: sess.customerName, phone: "", amount: debtAmt, paidAmount: 0, payments: [], note: `${info?.name}`, date: Date.now(), paid: false };
+      newDebtId = uid();
+      const newDebt = { id: newDebtId, name: sess.customerName, phone: sess.phone || "", amount: debtAmt, paidAmount: 0, payments: [], note: `${info?.name}`, date: Date.now(), paid: false };
       setDebts((p) => [...p, newDebt]);
     }
-    // ── Loyalty: update or create customer record ──
+    // ── Loyalty: update or create customer record + auto-link debts ──
     const guestNames = ["زائر", "Guest"];
     if (sess.customerName && !guestNames.includes(sess.customerName)) {
       const ratio = settings.loyaltyPointsRatio || 50;
@@ -704,10 +726,24 @@ export default function CashierSystem() {
         const idx = prev.findIndex((c) => c.name.toLowerCase() === sess.customerName.toLowerCase());
         if (idx >= 0) {
           const updated = [...prev];
-          updated[idx] = { ...updated[idx], totalVisits: updated[idx].totalVisits + 1, totalSpent: updated[idx].totalSpent + finalT, points: updated[idx].points + earnedPoints, lastVisit: Date.now() };
+          const existingDebtIds = updated[idx].linkedDebtIds || [];
+          updated[idx] = {
+            ...updated[idx],
+            totalVisits: updated[idx].totalVisits + 1,
+            totalSpent: updated[idx].totalSpent + finalT,
+            points: updated[idx].points + earnedPoints,
+            lastVisit: Date.now(),
+            phone: sess.phone || updated[idx].phone,
+            linkedDebtIds: newDebtId ? [...existingDebtIds, newDebtId] : existingDebtIds,
+          };
           return updated;
         }
-        return [...prev, { id: uid(), name: sess.customerName, phone: "", totalVisits: 1, totalSpent: finalT, points: earnedPoints, joinDate: Date.now(), lastVisit: Date.now() }];
+        return [...prev, {
+          id: uid(), name: sess.customerName, phone: sess.phone || "",
+          totalVisits: 1, totalSpent: finalT, points: earnedPoints,
+          joinDate: Date.now(), lastVisit: Date.now(),
+          linkedDebtIds: newDebtId ? [newDebtId] : [],
+        }];
       });
     }
     setSessions((p) => { const n = { ...p }; delete n[itemId]; return n; });

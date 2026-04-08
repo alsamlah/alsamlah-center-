@@ -595,6 +595,60 @@ export function subscribeToRegisters(tenantId: string, cb: RealtimeCallback) {
     .subscribe();
 }
 
+// ── Menu Realtime ────────────────────────────────────────────────────────────
+
+export async function loadMenu(tenantId: string): Promise<MenuItem[]> {
+  const { data, error } = await supabase
+    .from("menu_items")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .limit(1)
+    .single();
+  if (error || !data) return parse(ls("als-menu"), []);
+  const menu = (data.data as MenuItem[]) ?? [];
+  lsSet("als-menu", menu);
+  return menu;
+}
+
+export function subscribeToMenu(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`menu:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "menu_items",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
+
+// ── Floors Realtime ──────────────────────────────────────────────────────────
+
+export async function loadFloors(tenantId: string): Promise<Floor[]> {
+  const { data, error } = await supabase
+    .from("floors")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .limit(1)
+    .single();
+  if (error || !data) return parse(ls("als-floors"), []);
+  const floors = (data.data as Floor[]) ?? [];
+  lsSet("als-floors", floors);
+  return floors;
+}
+
+export function subscribeToFloors(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`floors:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "floors",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
+
 // ── Bookings ─────────────────────────────────────────────────────────────────
 
 export async function syncBookings(tenantId: string, branchId: string | null, bookings: Booking[]) {
