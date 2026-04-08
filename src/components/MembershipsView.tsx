@@ -47,6 +47,8 @@ export default function MembershipsView({
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [planForm, setPlanForm] = useState(EMPTY_PLAN);
   const [subCustomerName, setSubCustomerName] = useState("");
+  const [subPhone, setSubPhone] = useState("");
+  const [subEmail, setSubEmail] = useState("");
   const [subPlanId, setSubPlanId] = useState("");
   const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
 
@@ -133,7 +135,9 @@ export default function MembershipsView({
 
   // ── Subscribe ──
   const handleSubscribe = () => {
-    if (!subCustomerName.trim() || !subPlanId) return;
+    if (!subCustomerName.trim()) { notify(isRTL ? "أدخل اسم العميل" : "Enter customer name"); return; }
+    if (!subPhone.trim()) { notify(isRTL ? "أدخل رقم الجوال" : "Enter phone number"); return; }
+    if (!subPlanId) { notify(isRTL ? "اختر خطة" : "Select a plan"); return; }
     const plan = membershipPlans.find((p) => p.id === subPlanId);
     if (!plan) return;
 
@@ -146,6 +150,8 @@ export default function MembershipsView({
       id: uid(),
       customerId: existing?.id || uid(),
       customerName: subCustomerName.trim(),
+      customerPhone: subPhone.trim(),
+      customerEmail: subEmail.trim() || undefined,
       planId: plan.id,
       planName: plan.name,
       startDate: now,
@@ -163,6 +169,8 @@ export default function MembershipsView({
 
     setMemberships((prev) => [...prev, membership]);
     setSubCustomerName("");
+    setSubPhone("");
+    setSubEmail("");
     setSubPlanId("");
     setShowSubscribe(false);
     notify(t.subscribeMember + " ✓");
@@ -317,6 +325,7 @@ export default function MembershipsView({
                         key={c.id}
                         onClick={() => {
                           setSubCustomerName(c.name);
+                          if (c.phone) setSubPhone(c.phone);
                           setCustomerSuggestions([]);
                         }}
                         style={{
@@ -340,6 +349,34 @@ export default function MembershipsView({
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* Phone */}
+              <div style={{ marginBottom: "0.75rem" }}>
+                <label className="text-xs font-bold" style={{ color: "var(--text2)", display: "block", marginBottom: 4 }}>{t.phone} *</label>
+                <input
+                  className="input"
+                  type="tel"
+                  placeholder={isRTL ? "05xxxxxxxx" : "05xxxxxxxx"}
+                  value={subPhone}
+                  onChange={(e) => setSubPhone(e.target.value)}
+                  style={{ width: "100%", ...(subPhone.trim() ? {} : { borderColor: "color-mix(in srgb, var(--red) 30%, var(--border))" }) }}
+                  dir="ltr"
+                />
+              </div>
+
+              {/* Email */}
+              <div style={{ marginBottom: "0.75rem" }}>
+                <label className="text-xs font-bold" style={{ color: "var(--text2)", display: "block", marginBottom: 4 }}>{isRTL ? "الإيميل" : "Email"}</label>
+                <input
+                  className="input"
+                  type="email"
+                  placeholder="example@email.com"
+                  value={subEmail}
+                  onChange={(e) => setSubEmail(e.target.value)}
+                  style={{ width: "100%" }}
+                  dir="ltr"
+                />
               </div>
 
               {/* Plan selector */}
@@ -367,6 +404,8 @@ export default function MembershipsView({
                   onClick={() => {
                     setShowSubscribe(false);
                     setSubCustomerName("");
+                    setSubPhone("");
+                    setSubEmail("");
                     setSubPlanId("");
                     setCustomerSuggestions([]);
                   }}
@@ -419,6 +458,13 @@ export default function MembershipsView({
                       >
                         {m.planName}
                       </span>
+                      {(m.customerPhone || m.customerEmail) && (
+                        <div style={{ fontSize: "0.75rem", color: "var(--text2)", marginTop: 2 }}>
+                          {m.customerPhone && <span dir="ltr">📱 {m.customerPhone}</span>}
+                          {m.customerPhone && m.customerEmail && <span style={{ margin: "0 6px" }}>|</span>}
+                          {m.customerEmail && <span dir="ltr">✉️ {m.customerEmail}</span>}
+                        </div>
+                      )}
                     </div>
                     <span
                       className="badge"
