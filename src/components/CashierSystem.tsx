@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, MATCH_PRICE, TIER_GRACE_MINUTES, COUNTER_FLOOR, COUNTER_FLOOR_ID } from "@/lib/defaults";
 import { DEFAULT_SETTINGS, FONTS, FONT_SIZES, THEMES, T } from "@/lib/settings";
+import { supabase } from "@/lib/supabase";
 import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament, InspectionRegister } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
 import { uid, fmtTime, fmtMoney, fmtD } from "@/lib/utils";
@@ -82,6 +83,13 @@ export default function CashierSystem() {
   const [now, setNow] = useState(Date.now());
   const [toast, setToast] = useState<string | null>(null);
   const [dbLoading, setDbLoading] = useState(false);
+
+  // ── QR notification state ──
+  const [pendingQrCount, setPendingQrCount] = useState(0);
+  const [qrToast, setQrToast] = useState<{ room_name: string; item_name: string; item_icon: string } | null>(null);
+
+  // ── Sound + warning tracking ──
+  const warnedItemsRef = useRef<Set<string>>(new Set());
 
   // Track if we've loaded from Supabase for this tenant
   const loadedTenantRef = useRef<string | null>(null);
@@ -315,7 +323,77 @@ export default function CashierSystem() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
-  useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
+  // ── Sound system ──────────────────────────────────────────────────────────────
+  const playTone = (freq: number, duration: number, type: OscillatorType = "sine", vol = 0.4) => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = freq; osc.type = type;
+      gain.gain.setValueAtTime(vol, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.start(); osc.stop(ctx.currentTime + duration);
+    } catch { /* AudioContext may be blocked until user interaction */ }
+  };
+
+  const playSound = (sound: "qrOrder" | "sessionOpen" | "timeWarning") => {
+    if (sound === "qrOrder") {
+      playTone(880, 0.15); setTimeout(() => playTone(1100, 0.2), 160);
+    } else if (sound === "sessionOpen") {
+      playTone(660, 0.1); setTimeout(() => playTone(880, 0.15), 110);
+    } else if (sound === "timeWarning") {
+      [0, 220, 440].forEach((d) => setTimeout(() => playTone(440, 0.12, "square", 0.3), d));
+    }
+  };
+
+  // ── QR orders global subscription (badge + sound + toast) ──────────────────
+  useEffect(() => {
+    if (!tenantId) return;
+    const channel = supabase
+      .channel(`qr-global-${tenantId}`)
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "qr_orders",
+        filter: `tenant_id=eq.${tenantId}`,
+      }, (payload) => {
+        const o = payload.new as { room_name: string; item_name: string; item_icon: string; status: string };
+        setPendingQrCount((p) => p + 1);
+        playSound("qrOrder");
+        setQrToast({ room_name: o.room_name, item_name: o.item_name, item_icon: o.item_icon });
+        setTimeout(() => setQrToast(null), 6000);
+      })
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "qr_orders",
+        filter: `tenant_id=eq.${tenantId}`,
+      }, (payload) => {
+        const o = payload.new as { status: string };
+        if (o.status !== "pending") setPendingQrCount((p) => Math.max(0, p - 1));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const ts = Date.now();
+      setNow(ts);
+      // Time-warning sound: play once per session when < 5 minutes remain
+      Object.entries(sessions).forEach(([itemId, sess]) => {
+        if (!sess || sess.durationMins === 0) return; // open sessions skip
+        const elapsed = ts - sess.startTime;
+        const grace = sess.graceMins || 0;
+        const totalMs = (sess.durationMins + grace) * 60000;
+        const remaining = totalMs - elapsed;
+        if (remaining > 0 && remaining <= 5 * 60000 && !warnedItemsRef.current.has(itemId)) {
+          warnedItemsRef.current.add(itemId);
+          playSound("timeWarning");
+        }
+      });
+    }, 1000);
+    return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions]);
 
   const notify = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
@@ -422,6 +500,7 @@ export default function CashierSystem() {
     setOrders((p) => ({ ...p, [itemId]: curOrders }));
     // Supabase sync
     if (tenantId) syncSession(tenantId, branchId, itemId, newSess, curOrders).catch(() => {});
+    playSound("sessionOpen");
     notify(t.sessionStarted + " ✓");
   };
 
@@ -506,6 +585,15 @@ export default function CashierSystem() {
     });
   };
 
+  const handlePrepay = (itemId: string, amount: number, method: string) => {
+    setSessions((p) => {
+      const updated = { ...p, [itemId]: { ...p[itemId], prepaidAmount: amount, prepaidMethod: method, prepaidAt: Date.now() } };
+      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] ?? []).catch(() => {});
+      return updated;
+    });
+    notify((isRTL ? "تم الدفع المقدم" : "Advance payment recorded") + " ✓");
+  };
+
   const endSession = async (itemId: string, payMethod: string, debtAmt: number, discount: number, extra?: { payMethods?: Array<{method: string; amount: number}>; splitCount?: number }): Promise<string> => {
     const sess = sessions[itemId]; if (!sess) return "";
     const tot = calcTotal(itemId), info = getInfo(itemId), finalT = Math.max(0, tot.total - (discount || 0));
@@ -555,6 +643,7 @@ export default function CashierSystem() {
     }
     setSessions((p) => { const n = { ...p }; delete n[itemId]; return n; });
     setOrders((p) => { const n = { ...p }; delete n[itemId]; return n; });
+    warnedItemsRef.current.delete(itemId);
     notify(t.sessionEnded + " ✓"); setView("main"); setSelItem(null);
     return record.id;
   };
@@ -651,6 +740,7 @@ export default function CashierSystem() {
     const cashRevenue = paidRecs.filter((h) => h.payMethod === "cash").reduce((s, h) => s + h.total, 0);
     const cardRevenue = paidRecs.filter((h) => h.payMethod === "card").reduce((s, h) => s + h.total, 0);
     const transferRevenue = paidRecs.filter((h) => h.payMethod === "transfer").reduce((s, h) => s + h.total, 0);
+    const creditRevenue = paidRecs.filter((h) => h.payMethod === "credit").reduce((s, h) => s + h.total, 0);
     const debtTotal = paidRecs.reduce((s, h) => s + (h.debtAmount || 0), 0);
     const discountTotal = paidRecs.reduce((s, h) => s + (h.discount || 0), 0);
     const ordersRevenue = paidRecs.reduce((s, h) => s + (h.ordersTotal || 0), 0);
@@ -677,6 +767,21 @@ export default function CashierSystem() {
     const itemSales = Object.values(itemMap).sort((a, b) => b.qty - a.qty);
     const expectedCashInDrawer = currentShift.cashFloat + cashRevenue;
     const totalRefunds = paidRecs.reduce((s, h) => s + (h.correction?.refundAmount || 0), 0);
+    // Cashier breakdown
+    const byCashier: Record<string, { count: number; rev: number }> = {};
+    for (const h of paidRecs) {
+      const c = h.cashier || (isRTL ? "غير محدد" : "Unknown");
+      if (!byCashier[c]) byCashier[c] = { count: 0, rev: 0 };
+      byCashier[c].count++;
+      byCashier[c].rev += h.total;
+    }
+    // Mada (card) fees: 0.008 SAR per transaction, capped at 160 SAR/day
+    const madaRecs = paidRecs.filter((h) => h.payMethod === "card" || (h.payMethods?.some((m) => m.method === "card")));
+    const madaCount = madaRecs.length;
+    const madaFees = Math.min(madaCount * 0.008, 160);
+    const madaRevenue = cardRevenue;
+    // Credit card fees: 2.5%
+    const creditFees = creditRevenue * 0.025;
 
     const record: ShiftRecord = {
       ...currentShift,
@@ -688,6 +793,7 @@ export default function CashierSystem() {
         cashRevenue,
         cardRevenue,
         transferRevenue,
+        creditRevenue: creditRevenue > 0 ? creditRevenue : undefined,
         debtTotal,
         discountTotal,
         netRevenue: totalRevenue - discountTotal,
@@ -696,10 +802,15 @@ export default function CashierSystem() {
         heldCount,
         heldTotal,
         byZone,
+        byCashier: Object.keys(byCashier).length > 0 ? byCashier : undefined,
         itemSales,
         expectedCashInDrawer,
         totalRefunds: totalRefunds > 0 ? totalRefunds : undefined,
         netAfterRefunds: totalRefunds > 0 ? totalRevenue - discountTotal - totalRefunds : undefined,
+        madaRevenue: madaRevenue > 0 ? madaRevenue : undefined,
+        madaCount: madaCount > 0 ? madaCount : undefined,
+        madaFees: madaFees > 0 ? madaFees : undefined,
+        creditFees: creditFees > 0 ? creditFees : undefined,
       },
     };
     setShiftHistory((p) => [record, ...p.slice(0, 29)]);
@@ -765,6 +876,26 @@ export default function CashierSystem() {
         </div>
       )}
 
+      {/* QR order toast (visible on all views) */}
+      {qrToast && (
+        <div className="fixed z-[998] anim-fade-up"
+          style={{ bottom: 80, [isRTL ? "right" : "left"]: 16, cursor: "pointer" }}
+          onClick={() => { setView("qr"); setPendingQrCount(0); setQrToast(null); }}>
+          <div className="card px-4 py-3 flex items-center gap-3"
+            style={{ borderColor: "color-mix(in srgb, var(--accent) 40%, transparent)", background: "color-mix(in srgb, var(--accent) 12%, var(--surface))", minWidth: 220, boxShadow: "0 8px 30px rgba(0,0,0,0.3)" }}>
+            <span className="text-2xl">{qrToast.item_icon || "📱"}</span>
+            <div>
+              <div className="text-xs font-bold" style={{ color: "var(--accent)" }}>
+                {isRTL ? "طلب جديد" : "New Order"}
+              </div>
+              <div className="text-xs" style={{ color: "var(--text)" }}>
+                📍 {qrToast.room_name} — {qrToast.item_name}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══ DESKTOP SIDEBAR NAV ═══ */}
       <nav className="app-nav">
         <div className="text-center mb-8">
@@ -776,10 +907,18 @@ export default function CashierSystem() {
         </div>
         <div className="flex flex-col gap-1 flex-1">
           {navItems.map((n) => (
-            <button key={n.id} onClick={() => { setView(n.id); setSelItem(null); }}
+            <button key={n.id} onClick={() => { setView(n.id); setSelItem(null); if (n.id === "qr") setPendingQrCount(0); }}
               className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all"
               style={{ background: view === n.id ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "transparent", color: view === n.id ? "var(--accent)" : "var(--text2)" }}>
-              <span className="text-lg">{n.icon}</span>
+              <span className="text-lg relative">
+                {n.icon}
+                {n.id === "qr" && pendingQrCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center anim-pulse"
+                    style={{ background: "var(--red)", color: "#fff", fontSize: 8 }}>
+                    {pendingQrCount > 9 ? "9+" : pendingQrCount}
+                  </span>
+                )}
+              </span>
               <span>{n.label}</span>
             </button>
           ))}
@@ -1056,7 +1195,7 @@ export default function CashierSystem() {
         {view === "detail" && selItem && (() => {
           const info = getInfo(selItem);
           if (!info) return null;
-          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} onUpdateManualPrice={updateManualPrice} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} switchTargets={sessions[selItem] ? getSwitchTargets(selItem) : []} onSwitchActivity={switchActivity} />;
+          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} onUpdateManualPrice={updateManualPrice} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} switchTargets={sessions[selItem] ? getSwitchTargets(selItem) : []} onSwitchActivity={switchActivity} onPrepay={handlePrepay} />;
         })()}
 
         {view === "qr" && <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto"><QrOrdersPanel tenantId={tenantId} logo={logo} /></div>}
@@ -1134,10 +1273,18 @@ export default function CashierSystem() {
         style={{ background: "var(--nav-bg)", backdropFilter: "blur(20px)", borderTop: "1px solid var(--border)" }}>
         <div className="flex gap-1">
           {navItems.map((n) => (
-            <button key={n.id} onClick={() => { setView(n.id); setSelItem(null); }}
+            <button key={n.id} onClick={() => { setView(n.id); setSelItem(null); if (n.id === "qr") setPendingQrCount(0); }}
               className="flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl transition-all"
               style={{ background: view === n.id ? "color-mix(in srgb, var(--accent) 10%, transparent)" : "transparent", color: view === n.id ? "var(--accent)" : "var(--text2)", opacity: view === n.id ? 1 : 0.4 }}>
-              <span className="text-lg">{n.icon}</span>
+              <span className="text-lg relative">
+                {n.icon}
+                {n.id === "qr" && pendingQrCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center"
+                    style={{ background: "var(--red)", color: "#fff", fontSize: 8 }}>
+                    {pendingQrCount > 9 ? "9+" : pendingQrCount}
+                  </span>
+                )}
+              </span>
               <span className="text-[9px] font-semibold">{n.label}</span>
             </button>
           ))}

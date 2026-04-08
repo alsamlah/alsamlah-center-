@@ -27,9 +27,10 @@ interface Props {
   onHoldSession?: (id: string, discount: number, keepOccupied: boolean) => Promise<void> | void;
   switchTargets?: SwitchTarget[];
   onSwitchActivity?: (fromItemId: string, toItemId: string) => void;
+  onPrepay?: (id: string, amount: number, method: string) => void;
 }
 
-export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, onUpdateManualPrice, settings, logo, getInvoiceNo, customers, onHoldSession, switchTargets, onSwitchActivity }: Props) {
+export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, onUpdateManualPrice, settings, logo, getInvoiceNo, customers, onHoldSession, switchTargets, onSwitchActivity, onPrepay }: Props) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuCat, setMenuCat] = useState("");
   const [selDur, setSelDur] = useState(30);
@@ -43,10 +44,12 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   const [pendingPay, setPendingPay] = useState<{ method: string; debt: number; disc: number; payMethods?: Array<{method:string;amount:number}>; splitCount?: number } | null>(null);
   const [splitCount, setSplitCount] = useState(1);
   const [splitPayMode, setSplitPayMode] = useState(false);
-  const [splitParts, setSplitParts] = useState<Array<{amount: string; method: "cash" | "card" | "transfer"}>>([{ amount: "", method: "cash" }]);
+  const [splitParts, setSplitParts] = useState<Array<{amount: string; method: "cash" | "card" | "credit" | "transfer"}>>([{ amount: "", method: "cash" }]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showHold, setShowHold] = useState(false);
   const [holdDisc, setHoldDisc] = useState("");
+  const [showPrepay, setShowPrepay] = useState(false);
+  const [prepayMethod, setPrepayMethod] = useState("cash");
 
   const isRoomsZone = info.zone.id === MATCH_ZONE_ID;
   const isRoom10 = itemId === ROOM_10_ID;
@@ -452,16 +455,48 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
 
           {/* End Session */}
           <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
               <div className="text-sm font-bold" style={{ color: "var(--text)" }}>✋ {t.endSession}</div>
-              {onHoldSession && (
-                <button onClick={() => setShowHold(true)}
-                  className="btn px-3 py-1.5 text-xs"
-                  style={{ color: "var(--yellow)", borderColor: "color-mix(in srgb, var(--yellow) 25%, transparent)", background: "color-mix(in srgb, var(--yellow) 8%, transparent)" }}>
-                  ⏸ {t.hold ?? "تعليق"}
-                </button>
-              )}
+              <div className="flex gap-2">
+                {/* Prepaid button — only if no prepaid yet */}
+                {onPrepay && !session.prepaidAmount && (
+                  <button onClick={() => setShowPrepay(true)}
+                    className="btn px-3 py-1.5 text-xs"
+                    style={{ color: "var(--blue)", borderColor: "color-mix(in srgb, var(--blue) 25%, transparent)", background: "color-mix(in srgb, var(--blue) 8%, transparent)" }}>
+                    💳 {t.prepay ?? "دفع مقدم"}
+                  </button>
+                )}
+                {onHoldSession && (
+                  <button onClick={() => setShowHold(true)}
+                    className="btn px-3 py-1.5 text-xs"
+                    style={{ color: "var(--yellow)", borderColor: "color-mix(in srgb, var(--yellow) 25%, transparent)", background: "color-mix(in srgb, var(--yellow) 8%, transparent)" }}>
+                    ⏸ {t.hold ?? "تعليق"}
+                  </button>
+                )}
+              </div>
             </div>
+            {/* Prepaid badge — shown when prepaid is already recorded */}
+            {session.prepaidAmount && session.prepaidAmount > 0 && (
+              <div className="card p-3 mb-3 flex justify-between items-center text-xs"
+                style={{ background: "color-mix(in srgb, var(--blue) 8%, var(--surface))", borderColor: "color-mix(in srgb, var(--blue) 25%, transparent)" }}>
+                <span style={{ color: "var(--blue)" }}>✓ {t.prepaidAmountLabel ?? "المدفوع مقدماً"}</span>
+                <span className="font-bold flex items-center gap-1" style={{ color: "var(--blue)" }}>
+                  {fmtMoney(session.prepaidAmount)} <SarSymbol size={10} />
+                  {session.prepaidMethod && <span className="opacity-60 font-normal">({session.prepaidMethod === "cash" ? t.cash : session.prepaidMethod === "card" ? (t.mada ?? "مدى") : session.prepaidMethod === "credit" ? (t.credit ?? "ائتماني") : t.transfer})</span>}
+                </span>
+              </div>
+            )}
+            {/* Remaining to pay if prepaid exists */}
+            {session.prepaidAmount && session.prepaidAmount > 0 && calc && (
+              <div className="card p-3 mb-3 flex justify-between items-center text-xs"
+                style={{ background: calc.ordersTotal > 0 ? "color-mix(in srgb, var(--green) 8%, var(--surface))" : "var(--input-bg)" }}>
+                <span style={{ color: "var(--text2)" }}>{t.remainingToPay ?? "المتبقي للدفع"}</span>
+                <span className="font-bold flex items-center gap-1" style={{ color: calc.ordersTotal > 0 ? "var(--green)" : "var(--text2)" }}>
+                  {fmtMoney(Math.max(0, calc.ordersTotal))} <SarSymbol size={10} />
+                  {calc.ordersTotal === 0 && <span className="font-normal opacity-60">{t.noAdditionalAmount ?? "لا يوجد إضافي"}</span>}
+                </span>
+              </div>
+            )}
             {/* Discount + Debt + آجل كامل */}
             <div className="flex gap-3 mb-4">
               <div className="flex-1">
@@ -525,8 +560,8 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                 const entered = splitParts.reduce((s, p) => s + (Number(p.amount) || 0), 0);
                 const remaining = totalDue - entered;
                 const isValid = Math.abs(remaining) < 0.01 && entered > 0;
-                const methodIcons: Record<string, string> = { cash: "💵", card: "💳", transfer: "📲" };
-                const methodLabels: Record<string, string> = { cash: t.cash, card: t.card, transfer: t.transfer };
+                const methodIcons: Record<string, string> = { cash: "💵", card: "💳", credit: "💳", transfer: "📲" };
+                const methodLabels: Record<string, string> = { cash: t.cash, card: t.mada ?? "مدى", credit: t.credit ?? "ائتماني", transfer: t.transfer };
                 return (
                   <div className="card p-3" style={{ background: "var(--input-bg)" }}>
                     <div className="flex flex-col gap-2 mb-3">
@@ -549,7 +584,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                             )}
                           </div>
                           <div className="flex gap-1 mr-5">
-                            {(["cash","card","transfer"] as const).map(m => (
+                            {(["cash","card","credit","transfer"] as const).map(m => (
                               <button key={m} onClick={() => setSplitParts(prev => prev.map((p, j) => j === i ? { ...p, method: m } : p))}
                                 className="btn text-[10px] px-2 py-1 flex-1"
                                 style={part.method === m
@@ -594,17 +629,83 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                   </div>
                 );
               })() : (
-                <div className="grid grid-cols-3 gap-2">
-                  {[{ m: "cash", l: "💵 " + t.cash, c: "btn-success" }, { m: "card", l: "💳 " + t.card, c: "btn-ghost" }, { m: "transfer", l: "📲 " + t.transfer, c: "" }].map((pm) => (
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { m: "cash", l: "💵 " + t.cash, c: "btn-success" },
+                    { m: "card", l: "💳 " + (t.mada ?? "مدى"), c: "btn-ghost" },
+                    { m: "credit", l: "💳 " + (t.credit ?? "ائتماني"), c: "" },
+                    { m: "transfer", l: "📲 " + t.transfer, c: "" },
+                  ].map((pm) => (
                     <button key={pm.m}
                       onClick={() => setPendingPay({ method: pm.m, debt: Number(debtAmt) || 0, disc: Number(discount) || 0, splitCount: splitCount > 1 ? splitCount : undefined })}
-                      className={`btn py-3.5 text-sm ${pm.c}`}
+                      className={`btn py-3 text-sm ${pm.c}`}
                       style={!pm.c ? { background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 15%, transparent)" } : {}}>
                       {pm.l}
                     </button>
                   ))}
                 </div>
               )}</div>
+          </div>
+        </div>
+      )}
+
+      {/* (Handled externally via CashierSystem — nothing more needed here) */}
+
+      {/* ── Prepay Modal ── */}
+      {showPrepay && session && calc && onPrepay && (
+        <div className="fixed inset-0 z-[500] flex items-end md:items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)" }}>
+          <div className="card p-6 w-full max-w-sm anim-fade-up">
+            <div className="text-base font-bold mb-1 text-center" style={{ color: "var(--text)" }}>
+              💳 {t.prepay ?? "دفع مقدم"}
+            </div>
+            <div className="text-xs text-center mb-4" style={{ color: "var(--text2)" }}>
+              {isRTL ? "المبلغ الحالي (وقت + طلبات)" : "Current amount (time + orders)"}
+            </div>
+            {/* Current total */}
+            <div className="card p-4 mb-4 text-center"
+              style={{ background: "color-mix(in srgb, var(--accent) 8%, var(--surface))", borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)" }}>
+              <div className="text-2xl font-bold flex items-center justify-center gap-1" style={{ color: "var(--accent)" }}>
+                {fmtMoney(calc.total)} <SarSymbol size={20} />
+              </div>
+              <div className="text-[10px] mt-1" style={{ color: "var(--text2)" }}>
+                {isRTL ? "وقت" : "Time"}: {fmtMoney(calc.timePrice)} + {isRTL ? "طلبات" : "Orders"}: {fmtMoney(calc.ordersTotal)}
+              </div>
+            </div>
+            {/* Payment method */}
+            <div className="text-xs font-medium mb-2" style={{ color: "var(--text2)" }}>
+              {isRTL ? "طريقة الدفع" : "Payment Method"}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {[
+                { m: "cash", l: "💵 " + (t.cash ?? "كاش") },
+                { m: "card", l: "💳 " + (t.mada ?? "مدى") },
+                { m: "credit", l: "💳 " + (t.credit ?? "ائتماني") },
+                { m: "transfer", l: "📲 " + (t.transfer ?? "تحويل") },
+              ].map((pm) => (
+                <button key={pm.m} onClick={() => setPrepayMethod(pm.m)}
+                  className="btn py-2.5 text-xs"
+                  style={prepayMethod === pm.m
+                    ? { background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)", borderColor: "color-mix(in srgb, var(--accent) 30%, transparent)" }
+                    : { color: "var(--text2)" }}>
+                  {pm.l}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => {
+                  onPrepay(itemId, calc.total, prepayMethod);
+                  setShowPrepay(false);
+                }}
+                className="btn btn-primary py-3 text-sm font-bold">
+                ✓ {t.prepayConfirm ?? "تأكيد"}
+              </button>
+              <button onClick={() => setShowPrepay(false)}
+                className="btn py-3 text-sm btn-ghost">
+                {t.cancel}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -700,7 +801,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                 const sarUnit = isRTL ? "ر.س" : "SAR";
                 const cashDue = Math.max(0, calc.total - pendingPay.disc - pendingPay.debt);
                 const payLabel = isRTL
-                  ? (pendingPay.method === "cash" ? "كاش" : pendingPay.method === "card" ? "شبكة" : "تحويل")
+                  ? (pendingPay.method === "cash" ? "كاش" : pendingPay.method === "card" ? "مدى" : pendingPay.method === "credit" ? "ائتماني" : "تحويل")
                   : pendingPay.method;
                 // End session first to get the record ID for receipt URL
                 const recordId = await onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc, { payMethods: pendingPay.payMethods, splitCount: pendingPay.splitCount });

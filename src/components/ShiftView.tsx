@@ -29,6 +29,7 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
 
   const [cashFloatInput, setCashFloatInput] = useState("");
   const [confirmClose, setConfirmClose] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState("");
 
   // Revenue for current open shift (from history records that ended after shift opened)
   const shiftRecords = currentShift
@@ -163,18 +164,46 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
 
       {/* ── Shift History ── */}
       <div>
-        <h3 className="text-sm font-bold mb-3" style={{ color: "var(--text2)" }}>📋 {t.shiftHistory}</h3>
-        {shiftHistory.length === 0 ? (
-          <div className="text-center py-10 text-sm" style={{ color: "var(--text2)", opacity: 0.3 }}>
-            {t.noShiftHistory}
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <h3 className="text-sm font-bold" style={{ color: "var(--text2)" }}>📋 {t.shiftHistory}</h3>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={historyFilter}
+              onChange={(e) => setHistoryFilter(e.target.value)}
+              className="input text-xs py-1.5 px-2"
+              style={{ width: "auto" }}
+            />
+            {historyFilter && (
+              <button onClick={() => setHistoryFilter("")}
+                className="btn btn-ghost px-2 py-1.5 text-xs"
+                style={{ color: "var(--text2)" }}>✕</button>
+            )}
           </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {shiftHistory.slice(0, 20).map((s) => (
-              <ShiftCard key={s.id} shift={s} t={t} isRTL={isRTL} logo={logo} eodHour={settings.endOfDayHour ?? 5} />
-            ))}
-          </div>
-        )}
+        </div>
+        {(() => {
+          const filtered = historyFilter
+            ? shiftHistory.filter((s) => {
+                const d = new Date(s.closedAt);
+                const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                return dStr === historyFilter;
+              })
+            : shiftHistory;
+          if (filtered.length === 0) {
+            return (
+              <div className="text-center py-10 text-sm" style={{ color: "var(--text2)", opacity: 0.3 }}>
+                {historyFilter ? (isRTL ? "لا يوجد مناوبات في هذا التاريخ" : "No shifts on this date") : t.noShiftHistory}
+              </div>
+            );
+          }
+          return (
+            <div className="flex flex-col gap-3">
+              {filtered.slice(0, 20).map((s) => (
+                <ShiftCard key={s.id} shift={s} t={t} isRTL={isRTL} logo={logo} eodHour={settings.endOfDayHour ?? 5} />
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── End-of-Day Report Modal ── */}
@@ -288,11 +317,12 @@ function EodReportModal({ shift, settings, logo, onDismiss }: {
           </div>
 
           {/* Payment methods */}
-          <div className="grid grid-cols-3 gap-2 text-xs">
+          <div className="grid grid-cols-2 gap-2 text-xs">
             {[
-              { label: "💵 " + t.cashRev, val: s.cashRevenue },
-              { label: "💳 " + t.cardRev, val: s.cardRevenue },
-              { label: "📲 " + t.transferRev, val: s.transferRevenue },
+              { label: "💵 " + (t.cashRev ?? "نقدي"), val: s.cashRevenue },
+              { label: "💳 " + (t.madaRev ?? "مدى"), val: s.cardRevenue },
+              ...(s.creditRevenue ? [{ label: "💳 " + (t.creditRev ?? "ائتماني"), val: s.creditRevenue }] : []),
+              { label: "📲 " + (t.transferRev ?? "تحويل"), val: s.transferRevenue },
             ].map(({ label, val }) => (
               <div key={label} className="card p-2.5 text-center">
                 <div style={{ color: "var(--text2)" }}>{label}</div>
@@ -302,6 +332,74 @@ function EodReportModal({ shift, settings, logo, onDismiss }: {
               </div>
             ))}
           </div>
+
+          {/* VAT breakdown (prices inclusive of 15% VAT) */}
+          <div>
+            <div className="text-xs font-bold mb-2" style={{ color: "var(--text2)" }}>
+              📄 {t.vatBreakdown ?? "تفصيل الضريبة"}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(() => {
+                const vatRate = 0.15;
+                const preVat = s.totalRevenue / (1 + vatRate);
+                const vatAmt = s.totalRevenue - preVat;
+                return [
+                  { label: t.preVatAmount ?? "قبل الضريبة", val: preVat, color: "var(--text)" },
+                  { label: t.vatAmount ?? "ضريبة ١٥٪", val: vatAmt, color: "var(--yellow)" },
+                  { label: t.priceTotalInclVat ?? "شامل الضريبة", val: s.totalRevenue, color: "var(--green)" },
+                ].map(({ label, val, color }) => (
+                  <div key={label} className="card p-2.5 text-center">
+                    <div className="text-[10px]" style={{ color: "var(--text2)" }}>{label}</div>
+                    <div className="font-bold text-sm flex items-center justify-center gap-0.5 mt-0.5" style={{ color }}>
+                      {fmtMoney(val)} <SarSymbol size={10} />
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+
+          {/* Bank fees */}
+          {((s.madaFees ?? 0) > 0 || (s.creditFees ?? 0) > 0) && (
+            <div>
+              <div className="text-xs font-bold mb-2" style={{ color: "var(--text2)" }}>
+                🏦 {t.bankFees ?? "الرسوم البنكية"}
+              </div>
+              <div className="flex flex-col gap-1">
+                {(s.madaFees ?? 0) > 0 && (
+                  <div className="flex justify-between items-center px-3 py-1.5 rounded-lg text-xs"
+                    style={{ background: "var(--input-bg)" }}>
+                    <span style={{ color: "var(--text2)" }}>
+                      💳 {t.madaFees ?? "رسوم مدى"} ({s.madaCount ?? 0} × 0.008 ﷼)
+                    </span>
+                    <span className="font-bold flex items-center gap-0.5" style={{ color: "var(--red)" }}>
+                      -{fmtMoney(s.madaFees!)} <SarSymbol size={10} />
+                    </span>
+                  </div>
+                )}
+                {(s.creditFees ?? 0) > 0 && (
+                  <div className="flex justify-between items-center px-3 py-1.5 rounded-lg text-xs"
+                    style={{ background: "var(--input-bg)" }}>
+                    <span style={{ color: "var(--text2)" }}>
+                      💳 {t.creditFees ?? "رسوم ائتمانية"} (2.5٪)
+                    </span>
+                    <span className="font-bold flex items-center gap-0.5" style={{ color: "var(--red)" }}>
+                      -{fmtMoney(s.creditFees!)} <SarSymbol size={10} />
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center px-3 py-2 rounded-lg text-xs"
+                  style={{ background: "color-mix(in srgb, var(--green) 6%, transparent)", borderTop: "1px solid var(--border)" }}>
+                  <span className="font-semibold" style={{ color: "var(--text)" }}>
+                    ✅ {t.netAfterFees ?? "الصافي بعد الرسوم"}
+                  </span>
+                  <span className="font-bold flex items-center gap-0.5" style={{ color: "var(--green)" }}>
+                    {fmtMoney(s.totalRevenue - (s.madaFees ?? 0) - (s.creditFees ?? 0))} <SarSymbol size={10} />
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Shift info */}
           <div className="text-xs flex gap-4 flex-wrap" style={{ color: "var(--text2)" }}>
@@ -320,6 +418,24 @@ function EodReportModal({ shift, settings, logo, onDismiss }: {
                     style={{ background: "var(--input-bg)" }}>
                     <span style={{ color: "var(--text)" }}>{zone} <span style={{ color: "var(--text2)" }}>({count})</span></span>
                     <span className="font-bold flex items-center gap-0.5">{fmtMoney(rev)} <SarSymbol size={10} /></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Cashier breakdown */}
+          {s.byCashier && Object.keys(s.byCashier).length > 0 && (
+            <div>
+              <div className="text-xs font-bold mb-2" style={{ color: "var(--text2)" }}>{t.byCashier ?? "حسب الكاشير"}</div>
+              <div className="flex flex-col gap-1">
+                {Object.entries(s.byCashier).sort((a, b) => b[1].rev - a[1].rev).map(([cashier, data]) => (
+                  <div key={cashier} className="flex justify-between items-center px-3 py-1.5 rounded-lg text-xs"
+                    style={{ background: "var(--input-bg)" }}>
+                    <span style={{ color: "var(--text)" }}>{cashier} <span style={{ color: "var(--text2)" }}>({data.count})</span></span>
+                    <span className="font-bold flex items-center gap-0.5" style={{ color: "var(--green)" }}>
+                      {fmtMoney(data.rev)} <SarSymbol size={10} />
+                    </span>
                   </div>
                 ))}
               </div>

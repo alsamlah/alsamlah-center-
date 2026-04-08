@@ -61,6 +61,9 @@ export interface Session {
   sessionType?: "ps" | "match" | "walkin";
   manualPrice?: number;
   switchedFrom?: { itemId: string; itemName: string; switchedAt: number };
+  prepaidAmount?: number;
+  prepaidMethod?: string;
+  prepaidAt?: number;
 }
 
 export interface MenuItem {
@@ -130,6 +133,9 @@ export interface HistoryRecord {
   // Split bill — cosmetic, one receipt showing per-person amount
   splitCount?: number;
   splitAmount?: number;                                  // total / splitCount
+  // Prepaid amount collected at session start
+  prepaidAmount?: number;
+  prepaidMethod?: string;
   // Manager correction — record a refund when cashier overcharged
   correction?: {
     originalTotal: number;
@@ -203,10 +209,18 @@ export interface ShiftRecord extends Shift {
     heldCount?: number;
     heldTotal?: number;
     byZone?: Record<string, { count: number; rev: number }>;
+    byCashier?: Record<string, { count: number; rev: number }>;
     itemSales?: { name: string; icon: string; qty: number; rev: number }[];
     expectedCashInDrawer?: number;
     totalRefunds?: number;
     netAfterRefunds?: number;
+    // Mada debit card (card method) fees
+    madaRevenue?: number;
+    madaCount?: number;
+    madaFees?: number;
+    // Credit card fees
+    creditRevenue?: number;
+    creditFees?: number;
   };
 }
 
