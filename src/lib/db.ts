@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import type {
   Floor, MenuItem, Session, OrderItem,
   HistoryRecord, Debt, Tenant, Branch, SpecialGuest, Customer, Tournament,
-  InspectionRegister,
+  InspectionRegister, Booking, MembershipPlan, Membership, Promotion, MaintenanceLog,
 } from "@/lib/supabase";
 import { getBusinessDay } from "@/lib/utils";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES } from "@/lib/defaults";
@@ -31,6 +31,11 @@ export interface TenantData {
   customers: Customer[];
   tournaments: Tournament[];
   registers: InspectionRegister[];
+  bookings: Booking[];
+  membershipPlans: MembershipPlan[];
+  memberships: Membership[];
+  promotions: Promotion[];
+  maintenanceLogs: MaintenanceLog[];
   pins: Record<UserRole, string>;
   roleNames: Record<UserRole, string>;
   settings: SystemSettings;
@@ -72,6 +77,11 @@ export async function loadTenantData(
     customersRes,
     tournamentsRes,
     registersRes,
+    bookingsRes,
+    membershipPlansRes,
+    membershipsRes,
+    promotionsRes,
+    maintenanceLogsRes,
   ] = await Promise.allSettled([
     supabase.from("floors").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("menu_items").select("*").eq("tenant_id", tenantId).limit(1).single(),
@@ -83,6 +93,11 @@ export async function loadTenantData(
     supabase.from("customers").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("tournaments").select("data").eq("tenant_id", tenantId),
     supabase.from("inspection_registers").select("*").eq("tenant_id", tenantId),
+    supabase.from("bookings").select("*").eq("tenant_id", tenantId),
+    supabase.from("membership_plans").select("*").eq("tenant_id", tenantId).limit(1).single(),
+    supabase.from("memberships").select("*").eq("tenant_id", tenantId),
+    supabase.from("promotions").select("*").eq("tenant_id", tenantId).limit(1).single(),
+    supabase.from("maintenance_logs").select("*").eq("tenant_id", tenantId),
   ]);
 
   // ── Floors ──
@@ -145,6 +160,32 @@ export async function loadTenantData(
     ? registersRows.map((r) => r.data as InspectionRegister)
     : parse(ls("als-registers"), []);
 
+  // ── Bookings ──
+  const bookingsRows = bookingsRes.status === "fulfilled" ? bookingsRes.value.data ?? [] : [];
+  const bookings: Booking[] = bookingsRows.length > 0
+    ? bookingsRows.map((r) => r.data as Booking)
+    : parse(ls("als-bookings"), []);
+
+  // ── Membership Plans ──
+  const membershipPlansRow = membershipPlansRes.status === "fulfilled" ? membershipPlansRes.value.data : null;
+  const membershipPlans: MembershipPlan[] = membershipPlansRow?.data ?? parse(ls("als-membership-plans"), []);
+
+  // ── Memberships ──
+  const membershipsRows = membershipsRes.status === "fulfilled" ? membershipsRes.value.data ?? [] : [];
+  const memberships: Membership[] = membershipsRows.length > 0
+    ? membershipsRows.map((r) => r.data as Membership)
+    : parse(ls("als-memberships"), []);
+
+  // ── Promotions ──
+  const promotionsRow = promotionsRes.status === "fulfilled" ? promotionsRes.value.data : null;
+  const promotions: Promotion[] = promotionsRow?.data ?? parse(ls("als-promotions"), []);
+
+  // ── Maintenance Logs ──
+  const maintenanceLogsRows = maintenanceLogsRes.status === "fulfilled" ? maintenanceLogsRes.value.data ?? [] : [];
+  const maintenanceLogs: MaintenanceLog[] = maintenanceLogsRows.length > 0
+    ? maintenanceLogsRows.map((r) => r.data as MaintenanceLog)
+    : parse(ls("als-maintenance-logs"), []);
+
   // ── Logo (still stored in tenant row, base64 from localStorage or tenant.logo_url) ──
   const logo: string | null = ls("als-logo");
 
@@ -162,12 +203,17 @@ export async function loadTenantData(
   lsSet("als-customers", customers);
   lsSet("als-tournaments", tournaments);
   lsSet("als-registers", registers);
+  lsSet("als-bookings", bookings);
+  lsSet("als-membership-plans", membershipPlans);
+  lsSet("als-memberships", memberships);
+  lsSet("als-promotions", promotions);
+  lsSet("als-maintenance-logs", maintenanceLogs);
   lsSet("als-pins", pins);
   lsSet("als-role-names", roleNames);
   lsSet("als-settings", settings);
   lsSet("als-invoice-counter", String(invoiceCounter));
 
-  return { floors, menu, sessions, orders, history, debts, customers, tournaments, registers, pins, roleNames, settings, logo, invoiceCounter };
+  return { floors, menu, sessions, orders, history, debts, customers, tournaments, registers, bookings, membershipPlans, memberships, promotions, maintenanceLogs, pins, roleNames, settings, logo, invoiceCounter };
 }
 
 // ── Tenant & Business Profile ─────────────────────────────────────────────────
@@ -547,4 +593,82 @@ export function subscribeToRegisters(tenantId: string, cb: RealtimeCallback) {
       filter: `tenant_id=eq.${tenantId}`,
     }, (payload) => cb(payload as Record<string, unknown>))
     .subscribe();
+}
+
+// ── Bookings ─────────────────────────────────────────────────────────────────
+
+export async function syncBookings(tenantId: string, branchId: string | null, bookings: Booking[]) {
+  lsSet("als-bookings", bookings);
+  try {
+    await supabase.from("bookings").delete().eq("tenant_id", tenantId);
+    if (bookings.length > 0) {
+      await supabase.from("bookings").insert(
+        bookings.map((b) => ({ tenant_id: tenantId, branch_id: branchId, data: b }))
+      );
+    }
+  } catch { /* table may not exist yet */ }
+}
+
+export function subscribeToBookings(tenantId: string, cb: RealtimeCallback) {
+  return supabase
+    .channel(`bookings:${tenantId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "bookings",
+      filter: `tenant_id=eq.${tenantId}`,
+    }, (payload) => cb(payload as Record<string, unknown>))
+    .subscribe();
+}
+
+// ── Membership Plans ─────────────────────────────────────────────────────────
+
+export async function syncMembershipPlans(tenantId: string, branchId: string | null, plans: MembershipPlan[]) {
+  lsSet("als-membership-plans", plans);
+  try {
+    await supabase.from("membership_plans").upsert(
+      { tenant_id: tenantId, branch_id: branchId, data: plans, updated_at: new Date().toISOString() },
+      { onConflict: "tenant_id" }
+    );
+  } catch { /* table may not exist yet */ }
+}
+
+// ── Memberships ──────────────────────────────────────────────────────────────
+
+export async function syncMemberships(tenantId: string, branchId: string | null, memberships: Membership[]) {
+  lsSet("als-memberships", memberships);
+  try {
+    await supabase.from("memberships").delete().eq("tenant_id", tenantId);
+    if (memberships.length > 0) {
+      await supabase.from("memberships").insert(
+        memberships.map((m) => ({ tenant_id: tenantId, branch_id: branchId, data: m }))
+      );
+    }
+  } catch { /* table may not exist yet */ }
+}
+
+// ── Promotions ───────────────────────────────────────────────────────────────
+
+export async function syncPromotions(tenantId: string, branchId: string | null, promotions: Promotion[]) {
+  lsSet("als-promotions", promotions);
+  try {
+    await supabase.from("promotions").upsert(
+      { tenant_id: tenantId, branch_id: branchId, data: promotions, updated_at: new Date().toISOString() },
+      { onConflict: "tenant_id" }
+    );
+  } catch { /* table may not exist yet */ }
+}
+
+// ── Maintenance Logs ─────────────────────────────────────────────────────────
+
+export async function syncMaintenanceLogs(tenantId: string, branchId: string | null, logs: MaintenanceLog[]) {
+  lsSet("als-maintenance-logs", logs);
+  try {
+    await supabase.from("maintenance_logs").delete().eq("tenant_id", tenantId);
+    if (logs.length > 0) {
+      await supabase.from("maintenance_logs").insert(
+        logs.map((l) => ({ tenant_id: tenantId, branch_id: branchId, data: l }))
+      );
+    }
+  } catch { /* table may not exist yet */ }
 }

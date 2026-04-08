@@ -72,6 +72,10 @@ export interface MenuItem {
   price: number;
   cat: string;
   icon: string;
+  // Inventory tracking
+  stock?: number;
+  lowStockThreshold?: number;
+  trackStock?: boolean;
 }
 
 export interface OrderItem extends MenuItem {
@@ -93,7 +97,7 @@ export interface Zone {
   priceTiers?: PriceTier[];
   pricingMode?: "hourly" | "tiered" | "per-hit" | "walkin" | "manual";
   hitPrice?: number;
-  items: { id: string; name: string; sub?: string }[];
+  items: { id: string; name: string; sub?: string; status?: ItemStatus; maintenanceNote?: string }[];
 }
 
 export interface Floor {
@@ -242,11 +246,99 @@ export interface Customer {
   id: string;
   name: string;
   phone: string;
+  notes?: string;
   totalVisits: number;
   totalSpent: number;
   points: number;
   joinDate: number;
   lastVisit: number;
+  linkedDebtIds?: string[];
+  membershipId?: string;
+}
+
+// ── Item Status (Maintenance) ──
+export type ItemStatus = "active" | "maintenance" | "disabled";
+
+// ── Maintenance Logs ──
+export interface MaintenanceLog {
+  id: string;
+  itemId: string;
+  itemName: string;
+  zoneName: string;
+  type: "repair" | "routine" | "inspection";
+  description: string;
+  cost: number;
+  status: "pending" | "in-progress" | "completed";
+  startDate: number;
+  endDate?: number;
+  performedBy: string;
+  notes?: string;
+}
+
+// ── Bookings ──
+export interface Booking {
+  id: string;
+  itemId: string;
+  itemName: string;
+  customerName: string;
+  phone?: string;
+  date: number;
+  durationMins: number;
+  notes?: string;
+  status: "upcoming" | "active" | "completed" | "cancelled";
+  createdBy: string;
+  createdAt: number;
+  customerId?: string;
+}
+
+// ── Membership Plans ──
+export type MembershipPlanType = "monthly" | "hours";
+
+export interface MembershipPlan {
+  id: string;
+  name: string;
+  type: MembershipPlanType;
+  price: number;
+  totalHours?: number;
+  durationDays?: number;
+  discountPercent?: number;
+  isActive: boolean;
+}
+
+export interface Membership {
+  id: string;
+  customerId: string;
+  customerName: string;
+  planId: string;
+  planName: string;
+  startDate: number;
+  endDate?: number;
+  totalHours?: number;
+  usedHours: number;
+  remainingHours?: number;
+  status: "active" | "expired" | "depleted";
+  purchasedAt: number;
+  purchasedBy: string;
+}
+
+// ── Promotions ──
+export type PromotionType = "happy-hour" | "weekend" | "coupon";
+
+export interface Promotion {
+  id: string;
+  name: string;
+  type: PromotionType;
+  discountPercent: number;
+  startTime?: string;
+  endTime?: string;
+  daysOfWeek?: number[];
+  couponCode?: string;
+  maxUses?: number;
+  usedCount: number;
+  validFrom: number;
+  validTo: number;
+  isActive: boolean;
+  zoneIds?: string[];
 }
 
 // ── Tournaments ──

@@ -15,6 +15,8 @@ export interface SystemSettings {
   vatNumber?: string;         // ZATCA VAT registration number (15 digits, starts+ends with 3)
   sellerNameAr?: string;      // Arabic seller name for ZATCA QR (defaults to tenant name_ar)
   vatEnabled?: boolean;       // show VAT breakdown on invoices (default false until configured)
+  scanTrackerEndpoint?: string; // external expense API URL for ScanTracker integration
+  whatsappNotifyMins?: number;  // minutes before session end to send WhatsApp notification (default 5)
 }
 
 export const DEFAULT_SETTINGS: SystemSettings = {
@@ -228,6 +230,52 @@ export const T: Record<Language, Record<string, string>> = {
     totalBankFees: "إجمالي الرسوم البنكية", netAfterFees: "الصافي بعد الرسوم",
     // VAT in EOD
     vatBreakdown: "تفصيل الضريبة", preVatAmount: "قبل الضريبة (١٥٪)",
+    // ── Dashboard ──
+    occupancy: "نسبة الإشغال", vsYesterday: "مقارنة بالأمس", peakHour: "ساعة الذروة",
+    avgDuration: "متوسط مدة الجلسة", kpi: "مؤشرات الأداء",
+    revenueByMethod: "الإيراد حسب الطريقة", cashierPerformance: "أداء الكاشير",
+    peakHoursChart: "ساعات الذروة", liveData: "بيانات حية", normal: "عادي",
+    // ── Bookings ──
+    bookings: "الحجوزات", newBooking: "حجز جديد", bookingDate: "تاريخ الحجز",
+    bookingTime: "وقت الحجز", upcomingBookings: "حجوزات قادمة", booked: "محجوز",
+    bookingAlert: "تنبيه حجز", cancelBooking: "إلغاء الحجز", noBookings: "لا توجد حجوزات",
+    // ── Memberships ──
+    memberships: "العضويات", membershipPlans: "خطط العضوية",
+    monthlyPlan: "اشتراك شهري", hoursPlan: "باقة ساعات",
+    totalHours: "إجمالي الساعات", usedHours: "مستخدمة", remainingHours: "المتبقية",
+    subscribeMember: "تسجيل عضوية", memberBadge: "عضو",
+    expired: "منتهية", depleted: "مستنفدة", activePlan: "نشطة",
+    planName: "اسم الخطة", planPrice: "سعر الخطة", discountPct: "نسبة الخصم",
+    durationDays: "المدة (أيام)", noMemberships: "لا توجد عضويات",
+    noPlans: "لا توجد خطط", addPlan: "إضافة خطة",
+    // ── Promotions ──
+    promotions: "العروض", happyHour: "ساعة سعيدة", weekendDeal: "عرض نهاية الأسبوع",
+    coupon: "كوبون", couponCode: "رمز الكوبون", discountPercent: "نسبة الخصم",
+    validFrom: "صالح من", validTo: "صالح حتى", addPromotion: "إضافة عرض",
+    activePromotions: "العروض النشطة", noPromotions: "لا توجد عروض",
+    promoApplied: "تم تطبيق العرض", startTimeLabel: "من الساعة", endTimeLabel: "إلى الساعة",
+    // ── Inventory ──
+    inventory: "المخزون", stock: "الكمية", lowStock: "مخزون منخفض",
+    lowStockAlert: "تنبيه مخزون", trackStock: "تتبع المخزون",
+    outOfStock: "نفد", salesByItem: "مبيعات الأصناف", restock: "إعادة تعبئة",
+    // ── Maintenance ──
+    maintenance: "الصيانة", maintenanceStatus: "حالة الجهاز",
+    inMaintenance: "تحت الصيانة", disabled: "معطل",
+    maintenanceLog: "سجل الصيانة", maintenanceCost: "تكلفة الصيانة",
+    addMaintenanceLog: "إضافة سجل صيانة", repairType: "نوع الصيانة",
+    activate: "تفعيل", deactivate: "إيقاف", repair: "إصلاح",
+    routine: "دوري", inspection: "فحص", noMaintenanceLogs: "لا توجد سجلات صيانة",
+    // ── Notifications ──
+    sessionNotification: "إشعار الجلسة", beforeSessionEnds: "قبل انتهاء الجلسة",
+    sendWhatsApp: "إرسال واتساب", countdownDisplay: "عرض العد التنازلي",
+    minutesBefore: "دقائق قبل الانتهاء", notifySent: "تم الإرسال",
+    // ── Expense Export ──
+    exportRevenue: "تصدير الإيرادات", scantracker: "سكان تراكر",
+    exportToApi: "تصدير للنظام الخارجي", apiEndpoint: "رابط API",
+    exportSuccess: "تم التصدير بنجاح", apiEndpointSetting: "رابط سكان تراكر",
+    // ── Customer notes ──
+    customerNotes: "ملاحظات العميل", linkedDebts: "الديون المرتبطة",
+    visitHistory: "سجل الزيارات",
   },
   en: {
     appName: "ALSAMLAH",
@@ -395,5 +443,51 @@ export const T: Record<Language, Record<string, string>> = {
     totalBankFees: "Total Bank Fees", netAfterFees: "Net After Fees",
     // VAT in EOD
     vatBreakdown: "VAT Breakdown", preVatAmount: "Before VAT (15%)",
+    // ── Dashboard ──
+    occupancy: "Occupancy", vsYesterday: "vs Yesterday", peakHour: "Peak Hour",
+    avgDuration: "Avg Duration", kpi: "KPIs",
+    revenueByMethod: "Revenue by Method", cashierPerformance: "Cashier Performance",
+    peakHoursChart: "Peak Hours", liveData: "Live Data", normal: "Normal",
+    // ── Bookings ──
+    bookings: "Bookings", newBooking: "New Booking", bookingDate: "Booking Date",
+    bookingTime: "Booking Time", upcomingBookings: "Upcoming", booked: "Booked",
+    bookingAlert: "Booking Alert", cancelBooking: "Cancel Booking", noBookings: "No bookings",
+    // ── Memberships ──
+    memberships: "Memberships", membershipPlans: "Plans",
+    monthlyPlan: "Monthly", hoursPlan: "Hours Package",
+    totalHours: "Total Hours", usedHours: "Used", remainingHours: "Remaining",
+    subscribeMember: "Subscribe", memberBadge: "Member",
+    expired: "Expired", depleted: "Depleted", activePlan: "Active",
+    planName: "Plan Name", planPrice: "Plan Price", discountPct: "Discount %",
+    durationDays: "Duration (days)", noMemberships: "No memberships",
+    noPlans: "No plans", addPlan: "Add Plan",
+    // ── Promotions ──
+    promotions: "Promotions", happyHour: "Happy Hour", weekendDeal: "Weekend Deal",
+    coupon: "Coupon", couponCode: "Coupon Code", discountPercent: "Discount %",
+    validFrom: "Valid From", validTo: "Valid Until", addPromotion: "Add Promotion",
+    activePromotions: "Active Promotions", noPromotions: "No promotions",
+    promoApplied: "Promotion applied", startTimeLabel: "From", endTimeLabel: "To",
+    // ── Inventory ──
+    inventory: "Inventory", stock: "Stock", lowStock: "Low Stock",
+    lowStockAlert: "Stock Alert", trackStock: "Track Stock",
+    outOfStock: "Out of Stock", salesByItem: "Sales by Item", restock: "Restock",
+    // ── Maintenance ──
+    maintenance: "Maintenance", maintenanceStatus: "Device Status",
+    inMaintenance: "In Maintenance", disabled: "Disabled",
+    maintenanceLog: "Maintenance Log", maintenanceCost: "Maintenance Cost",
+    addMaintenanceLog: "Add Log", repairType: "Repair Type",
+    activate: "Activate", deactivate: "Deactivate", repair: "Repair",
+    routine: "Routine", inspection: "Inspection", noMaintenanceLogs: "No maintenance logs",
+    // ── Notifications ──
+    sessionNotification: "Session Alert", beforeSessionEnds: "Before Session Ends",
+    sendWhatsApp: "Send WhatsApp", countdownDisplay: "Countdown Display",
+    minutesBefore: "Minutes Before End", notifySent: "Sent",
+    // ── Expense Export ──
+    exportRevenue: "Export Revenue", scantracker: "ScanTracker",
+    exportToApi: "Export to External", apiEndpoint: "API Endpoint",
+    exportSuccess: "Exported successfully", apiEndpointSetting: "ScanTracker URL",
+    // ── Customer notes ──
+    customerNotes: "Customer Notes", linkedDebts: "Linked Debts",
+    visitHistory: "Visit History",
   },
 };

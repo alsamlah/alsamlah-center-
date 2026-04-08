@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, MATCH_PRICE, TIER_GRACE_MINUTES, COUNTER_FLOOR, COUNTER_FLOOR_ID } from "@/lib/defaults";
 import { DEFAULT_SETTINGS, FONTS, FONT_SIZES, THEMES, T } from "@/lib/settings";
 import { supabase } from "@/lib/supabase";
-import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament, InspectionRegister } from "@/lib/supabase";
+import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament, InspectionRegister, Booking, MembershipPlan, Membership, Promotion, MaintenanceLog } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
 import { uid, fmtTime, fmtMoney, fmtD } from "@/lib/utils";
 import { printSession } from "@/lib/printReceipt";
@@ -19,6 +19,7 @@ import {
   upsertRegister, subscribeToRegisters,
   updateHistoryRecord as updateHistoryRecordDB,
   deleteHistoryRecord as deleteHistoryRecordDB,
+  syncBookings, syncMembershipPlans, syncMemberships, syncPromotions, syncMaintenanceLogs,
 } from "@/lib/db";
 import AuthScreen from "./AuthScreen";
 import RoleSelectScreen from "./RoleSelectScreen";
@@ -34,6 +35,11 @@ import ScannerModal from "./ScannerModal";
 import SpecialGuestsView, { GUEST_TYPE_CONFIG, isInspectorType } from "./SpecialGuestsView";
 import TournamentsView from "./TournamentsView";
 import RegistersView from "./RegistersView";
+import DashboardView from "./DashboardView";
+import BookingsView from "./BookingsView";
+import MembershipsView from "./MembershipsView";
+import PromotionsView from "./PromotionsView";
+import MaintenanceView from "./MaintenanceView";
 import SarSymbol from "./SarSymbol";
 
 export default function CashierSystem() {
@@ -74,6 +80,13 @@ export default function CashierSystem() {
   // ── Tournaments ──
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [registers, setRegisters] = useState<InspectionRegister[]>([]);
+
+  // ── New features state ──
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([]);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [maintenanceLogs, setMaintenanceLogs] = useState<MaintenanceLog[]>([]);
 
   // ── UI state ──
   const [view, setView] = useState("main");
@@ -145,6 +158,11 @@ export default function CashierSystem() {
     try { const v = localStorage.getItem("als-special-guests"); if (v) setSpecialGuests(JSON.parse(v)); } catch {}
     try { const v = localStorage.getItem("als-tournaments"); if (v) setTournaments(JSON.parse(v)); } catch {}
     try { const v = localStorage.getItem("als-registers"); if (v) setRegisters(JSON.parse(v)); } catch {}
+    try { const v = localStorage.getItem("als-bookings"); if (v) setBookings(JSON.parse(v)); } catch {}
+    try { const v = localStorage.getItem("als-membership-plans"); if (v) setMembershipPlans(JSON.parse(v)); } catch {}
+    try { const v = localStorage.getItem("als-memberships"); if (v) setMemberships(JSON.parse(v)); } catch {}
+    try { const v = localStorage.getItem("als-promotions"); if (v) setPromotions(JSON.parse(v)); } catch {}
+    try { const v = localStorage.getItem("als-maintenance-logs"); if (v) setMaintenanceLogs(JSON.parse(v)); } catch {}
   }, []);
 
   // ── Load from Supabase when tenant is ready (overrides localStorage) ──
@@ -165,6 +183,11 @@ export default function CashierSystem() {
       setCustomers(data.customers);
       setTournaments(data.tournaments);
       setRegisters(data.registers);
+      setBookings(data.bookings);
+      setMembershipPlans(data.membershipPlans);
+      setMemberships(data.memberships);
+      setPromotions(data.promotions);
+      setMaintenanceLogs(data.maintenanceLogs);
       setPins(data.pins);
       setRoleNames(data.roleNames);
       setSettings(data.settings);
@@ -198,6 +221,11 @@ export default function CashierSystem() {
   useEffect(() => { saveLS("als-shift-history", shiftHistory); }, [shiftHistory, saveLS]);
   useEffect(() => { saveLS("als-customers", customers); }, [customers, saveLS]);
   useEffect(() => { saveLS("als-special-guests", specialGuests); }, [specialGuests, saveLS]);
+  useEffect(() => { saveLS("als-bookings", bookings); }, [bookings, saveLS]);
+  useEffect(() => { saveLS("als-membership-plans", membershipPlans); }, [membershipPlans, saveLS]);
+  useEffect(() => { saveLS("als-memberships", memberships); }, [memberships, saveLS]);
+  useEffect(() => { saveLS("als-promotions", promotions); }, [promotions, saveLS]);
+  useEffect(() => { saveLS("als-maintenance-logs", maintenanceLogs); }, [maintenanceLogs, saveLS]);
 
   // Supabase background syncs (non-blocking)
   useEffect(() => {
@@ -237,6 +265,36 @@ export default function CashierSystem() {
     syncCustomers(tenantId, branchId, customers).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || dbLoading) return;
+    syncBookings(tenantId, branchId, bookings).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || dbLoading) return;
+    syncMembershipPlans(tenantId, branchId, membershipPlans).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membershipPlans, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || dbLoading) return;
+    syncMemberships(tenantId, branchId, memberships).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberships, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || dbLoading) return;
+    syncPromotions(tenantId, branchId, promotions).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promotions, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || dbLoading) return;
+    syncMaintenanceLogs(tenantId, branchId, maintenanceLogs).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maintenanceLogs, tenantId]);
 
   // ── Realtime: multi-device sync ──────────────────────────────────────────────
   useEffect(() => {
@@ -385,9 +443,20 @@ export default function CashierSystem() {
         const grace = sess.graceMins || 0;
         const totalMs = (sess.durationMins + grace) * 60000;
         const remaining = totalMs - elapsed;
-        if (remaining > 0 && remaining <= 5 * 60000 && !warnedItemsRef.current.has(itemId)) {
+        const warnMins = settings.whatsappNotifyMins ?? 5;
+        if (remaining > 0 && remaining <= warnMins * 60000 && !warnedItemsRef.current.has(itemId)) {
           warnedItemsRef.current.add(itemId);
           playSound("timeWarning");
+          // WhatsApp notification to customer if phone is available
+          if (sess.phone) {
+            const itemName = floors.flatMap((f) => f.zones.flatMap((z) => z.items)).find((i) => i.id === itemId)?.name || itemId;
+            const minsLeft = Math.ceil(remaining / 60000);
+            const msg = settings.lang === "ar"
+              ? `مرحباً ${sess.customerName}، جلستك في ${itemName} ستنتهي خلال ${minsLeft} دقائق. شكراً لزيارتكم - مركز الصملة للترفيه`
+              : `Hi ${sess.customerName}, your session at ${itemName} will end in ${minsLeft} minutes. Thank you - ALSAMLAH Entertainment`;
+            const phone = sess.phone.replace(/\D/g, "").replace(/^0/, "966");
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+          }
         }
       });
     }, 1000);
@@ -861,7 +930,12 @@ export default function CashierSystem() {
     { id: "special-guests", icon: "👁", label: t.specialGuests, show: true },
     { id: "tournaments", icon: "🏆", label: t.tournaments, show: true },
     { id: "registers", icon: "📋", label: t.registers, show: true },
-    { id: "stats", icon: "📊", label: t.stats, show: true },
+    { id: "dashboard", icon: "📊", label: t.dashboard, show: isManager },
+    { id: "bookings", icon: "📅", label: t.bookings, show: true },
+    { id: "memberships", icon: "🎫", label: t.memberships, show: true },
+    { id: "promotions", icon: "⏰", label: t.promotions, show: isManager },
+    { id: "maintenance", icon: "🔧", label: t.maintenance, show: isManager },
+    { id: "stats", icon: "📈", label: t.stats, show: true },
     { id: "admin", icon: "⚙️", label: t.admin, show: isManager },
   ].filter((n) => n.show);
 
@@ -1045,6 +1119,49 @@ export default function CashierSystem() {
               </div>
             </div>
 
+            {/* ═══ Manager KPI Strip ═══ */}
+            {isManager && (() => {
+              const totalItems = floors.filter((f) => f.id !== COUNTER_FLOOR_ID).reduce((s, f) => s + f.zones.reduce((zs, z) => zs + z.items.length, 0), 0);
+              const occupancyPct = totalItems > 0 ? Math.round((activeCount / totalItems) * 100) : 0;
+              const yesterdayRev = history.filter((h) => {
+                const d = new Date(h.endTime);
+                const y = new Date(); y.setDate(y.getDate() - 1);
+                return d.toDateString() === y.toDateString();
+              }).reduce((s, h) => s + h.total, 0);
+              const revChange = yesterdayRev > 0 ? Math.round(((todayRev - yesterdayRev) / yesterdayRev) * 100) : 0;
+              const todayHist = history.filter((h) => new Date(h.endTime).toDateString() === new Date().toDateString());
+              const avgDur = todayHist.length > 0 ? Math.round(todayHist.reduce((s, h) => s + h.duration, 0) / todayHist.length / 60000) : 0;
+              const hourCounts: Record<number, number> = {};
+              todayHist.forEach((h) => { const hr = new Date(h.startTime).getHours(); hourCounts[hr] = (hourCounts[hr] || 0) + 1; });
+              const peakHr = Object.entries(hourCounts).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+              return (
+                <div className="flex gap-3 mb-4 flex-wrap" style={{ direction: isRTL ? "rtl" : "ltr" }}>
+                  {[
+                    { icon: "📊", label: t.occupancy, value: `${activeCount}/${totalItems}`, sub: `${occupancyPct}%`, color: "var(--accent)", barPct: occupancyPct },
+                    { icon: "📈", label: t.vsYesterday, value: revChange >= 0 ? `↑ ${revChange}%` : `↓ ${Math.abs(revChange)}%`, sub: `${isRTL ? "أمس" : "Yesterday"}: ${fmtMoney(yesterdayRev)}`, color: revChange >= 0 ? "var(--green)" : "var(--red)", barPct: 0 },
+                    { icon: "🕐", label: t.peakHour, value: peakHr ? `${Number(peakHr[0]) > 12 ? Number(peakHr[0]) - 12 : peakHr[0]} ${Number(peakHr[0]) >= 12 ? (isRTL ? "م" : "PM") : (isRTL ? "ص" : "AM")}` : "—", sub: peakHr ? `${peakHr[1]} ${t.sessions}` : "", color: "var(--yellow)", barPct: 0 },
+                    { icon: "⏱", label: t.avgDuration, value: `${avgDur} ${isRTL ? "د" : "m"}`, sub: todayHist.length > 0 ? `${todayHist.length} ${t.sessions}` : "", color: "var(--blue)", barPct: 0 },
+                  ].map((k, i) => (
+                    <div key={i} className="card px-3 py-2 flex items-center gap-3 flex-1 min-w-[140px]"
+                      style={{ background: `color-mix(in srgb, ${k.color} 5%, var(--surface))`, borderColor: `color-mix(in srgb, ${k.color} 12%, transparent)` }}>
+                      <div className="text-xl w-9 h-9 flex items-center justify-center rounded-lg"
+                        style={{ background: `color-mix(in srgb, ${k.color} 10%, transparent)` }}>{k.icon}</div>
+                      <div>
+                        <div className="text-[10px]" style={{ color: "var(--text2)" }}>{k.label}</div>
+                        <div className="text-sm font-bold" style={{ color: k.color }}>{k.value}</div>
+                        {k.sub && <div className="text-[9px]" style={{ color: "var(--text2)" }}>{k.sub}</div>}
+                        {k.barPct > 0 && (
+                          <div className="w-12 h-1 rounded mt-1" style={{ background: "rgba(255,255,255,0.06)" }}>
+                            <div className="h-full rounded" style={{ width: `${k.barPct}%`, background: k.color }} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
             {/* Floor Tabs + Scan button */}
             <div className="flex gap-2 mb-6 items-center flex-wrap">
               {floors.filter((f) => f.id !== COUNTER_FLOOR_ID).map((f) => (
@@ -1084,12 +1201,50 @@ export default function CashierSystem() {
                       const isAct = !!sessions[item.id], sess = sessions[item.id], tot = isAct ? calcTotal(item.id) : null;
                       const isOT = tot?.isOvertime, isOp = tot?.isOpen;
                       const isManualZone = zone.pricingMode === "manual";
+                      const isMaint = item.status === "maintenance";
+                      const isDisabled = item.status === "disabled";
+                      const itemBooking = bookings.find((b) => b.itemId === item.id && b.status === "upcoming");
+                      const custMembership = isAct && sess ? memberships.find((m) => m.status === "active" && customers.find((c) => c.id === m.customerId && c.name === sess.customerName)) : null;
                       return (
-                        <div key={item.id} onClick={() => { setSelItem(item.id); setView("detail"); }}
+                        <div key={item.id} onClick={() => {
+                          if (isMaint || isDisabled) return; // don't open if in maintenance/disabled
+                          setSelItem(item.id); setView("detail");
+                        }}
                           className={`card p-4 cursor-pointer relative overflow-hidden anim-fade ${isOT ? "card-danger" : isAct ? "card-active" : ""}`}
-                          style={{ minHeight: 120 }}>
+                          style={{
+                            minHeight: 120,
+                            ...(isMaint ? { borderColor: "color-mix(in srgb, var(--yellow) 25%, transparent)", background: "color-mix(in srgb, var(--yellow) 4%, var(--surface))", opacity: 0.75 } : {}),
+                            ...(isDisabled ? { borderColor: "color-mix(in srgb, var(--red) 20%, transparent)", opacity: 0.5 } : {}),
+                          }}>
+                          {/* Maintenance badge */}
+                          {isMaint && (
+                            <div className={`absolute top-1.5 ${isRTL ? "right-1.5" : "left-1.5"} text-[8px] font-bold px-1.5 py-0.5 rounded`}
+                              style={{ background: "color-mix(in srgb, var(--yellow) 15%, transparent)", color: "var(--yellow)" }}>
+                              🔧 {t.inMaintenance}
+                            </div>
+                          )}
+                          {isDisabled && (
+                            <div className={`absolute top-1.5 ${isRTL ? "right-1.5" : "left-1.5"} text-[8px] font-bold px-1.5 py-0.5 rounded`}
+                              style={{ background: "color-mix(in srgb, var(--red) 15%, transparent)", color: "var(--red)" }}>
+                              ⛔ {t.disabled}
+                            </div>
+                          )}
+                          {/* Booking badge */}
+                          {itemBooking && !isAct && (
+                            <div className={`absolute top-1.5 ${isRTL ? "left-1.5" : "right-1.5"} text-[8px] font-bold px-1.5 py-0.5 rounded`}
+                              style={{ background: "color-mix(in srgb, var(--blue) 12%, transparent)", color: "var(--blue)" }}>
+                              📅 {new Date(itemBooking.date).toLocaleTimeString(isRTL ? "ar" : "en", { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          )}
+                          {/* Member badge */}
+                          {custMembership && (
+                            <div className={`absolute top-1.5 ${isRTL ? "right-1.5" : "left-1.5"} text-[8px] font-bold px-1.5 py-0.5 rounded`}
+                              style={{ background: "color-mix(in srgb, var(--yellow) 12%, transparent)", color: "var(--yellow)" }}>
+                              ⭐ {t.memberBadge}
+                            </div>
+                          )}
                           {isAct && <div className={`absolute top-3 ${isRTL ? "left-3" : "right-3"} w-2 h-2 rounded-full anim-pulse`} style={{ background: isOT ? "var(--red)" : "var(--green)" }} />}
-                          <div className="font-bold text-sm" style={{ color: "var(--text)" }}>{item.name}</div>
+                          <div className="font-bold text-sm" style={{ color: isMaint ? "var(--yellow)" : "var(--text)" }}>{item.name}</div>
                           {item.sub && <div className="text-[10px] mt-0.5" style={{ color: "var(--text2)", opacity: 0.5 }}>{item.sub}</div>}
                           {isAct && sess && tot ? (
                             <div className="mt-3">
@@ -1222,7 +1377,7 @@ export default function CashierSystem() {
           />
         )}
 
-        {view === "shift" && <ShiftView currentShift={currentShift} shiftHistory={shiftHistory} history={history} onOpen={openShift} onClose={closeShift} user={user} settings={settings} isManager={isManager} now={now} lastClosedShift={lastClosedShift} onDismissEod={() => setLastClosedShift(null)} logo={logo} />}
+        {view === "shift" && <ShiftView currentShift={currentShift} shiftHistory={shiftHistory} history={history} onOpen={openShift} onClose={closeShift} user={user} settings={settings} isManager={isManager} now={now} lastClosedShift={lastClosedShift} onDismissEod={() => setLastClosedShift(null)} logo={logo} notify={notify} />}
         {view === "debts" && <DebtsView debts={debts} setDebts={setDebts} role={user.role} notify={notify} settings={settings} logo={logo} />}
         {view === "customers" && <CustomersView customers={customers} setCustomers={setCustomers} settings={settings} notify={notify} />}
         {view === "special-guests" && <SpecialGuestsView guests={specialGuests} setGuests={setSpecialGuests} currentUser={user.name} settings={settings} notify={notify} />}
@@ -1264,6 +1419,11 @@ export default function CashierSystem() {
             }}
           />
         )}
+        {view === "dashboard" && <DashboardView history={history} sessions={sessions} floors={floors} settings={settings} logo={logo} />}
+        {view === "bookings" && <BookingsView bookings={bookings} setBookings={setBookings} floors={floors} sessions={sessions} currentUser={user.name} settings={settings} notify={notify} />}
+        {view === "memberships" && <MembershipsView membershipPlans={membershipPlans} setMembershipPlans={setMembershipPlans} memberships={memberships} setMemberships={setMemberships} customers={customers} isManager={isManager} settings={settings} notify={notify} />}
+        {view === "promotions" && <PromotionsView promotions={promotions} setPromotions={setPromotions} isManager={isManager} settings={settings} notify={notify} />}
+        {view === "maintenance" && <MaintenanceView maintenanceLogs={maintenanceLogs} setMaintenanceLogs={setMaintenanceLogs} floors={floors} setFloors={setFloors} settings={settings} notify={notify} currentUser={user.name} />}
         {view === "stats" && <StatsView history={history} debts={debts} sessions={sessions} role={user.role} settings={settings} logo={logo} currentBranchId={appCtx?.branch?.id} currentBranchName={appCtx?.branch?.name} />}
         {view === "admin" && <AdminView floors={floors} setFloors={setFloors} menu={menu} setMenu={setMenu} pins={pins} setPins={setPins} roleNames={roleNames} setRoleNames={setRoleNames} role={user.role} notify={notify} onClearHistory={() => setHistory([])} onClearDebts={() => setDebts([])} settings={settings} setSettings={setSettings} logo={logo} setLogo={setLogo} tenantId={tenantId ?? ""} />}
       </main>

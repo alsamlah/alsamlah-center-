@@ -21,9 +21,10 @@ interface Props {
   lastClosedShift?: ShiftRecord | null;
   onDismissEod?: () => void;
   logo?: string | null;
+  notify?: (m: string) => void;
 }
 
-export default function ShiftView({ currentShift, shiftHistory, history, onOpen, onClose, user, settings, isManager, now, lastClosedShift, onDismissEod, logo }: Props) {
+export default function ShiftView({ currentShift, shiftHistory, history, onOpen, onClose, user, settings, isManager, now, lastClosedShift, onDismissEod, logo, notify }: Props) {
   const t = T[settings.lang];
   const isRTL = settings.lang === "ar";
 
@@ -208,7 +209,7 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
 
       {/* ── End-of-Day Report Modal ── */}
       {lastClosedShift && (
-        <EodReportModal shift={lastClosedShift} settings={settings} logo={logo} onDismiss={() => onDismissEod?.()} />
+        <EodReportModal shift={lastClosedShift} settings={settings} logo={logo} onDismiss={() => onDismissEod?.()} notify={notify} />
       )}
     </div>
   );
@@ -216,14 +217,16 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
 
 // ── End-of-Day Report Modal ────────────────────────────────────────────────────
 
-function EodReportModal({ shift, settings, logo, onDismiss }: {
+function EodReportModal({ shift, settings, logo, onDismiss, notify }: {
   shift: ShiftRecord;
   settings: SystemSettings;
   logo?: string | null;
   onDismiss: () => void;
+  notify?: (m: string) => void;
 }) {
   const t = T[settings.lang];
   const isRTL = settings.lang === "ar";
+  const [exportDone, setExportDone] = useState(false);
   const s = shift.summary;
   const businessDate = getBusinessDay(shift.closedAt, settings.endOfDayHour ?? 5);
 
@@ -504,6 +507,50 @@ function EodReportModal({ shift, settings, logo, onDismiss }: {
             style={{ background: "color-mix(in srgb, var(--green) 10%, transparent)", color: "var(--green)", borderColor: "color-mix(in srgb, var(--green) 25%, transparent)" }}>
             📱 {isRTL ? "مشاركة عبر واتساب" : "Share via WhatsApp"}
           </button>
+
+          {/* Export to ScanTracker */}
+          {settings.scanTrackerEndpoint && (
+            <button
+              onClick={() => {
+                const payload = {
+                  businessDate,
+                  openedAt: shift.openedAt,
+                  closedAt: shift.closedAt,
+                  openedBy: shift.openedBy,
+                  closedBy: shift.closedBy,
+                  cashFloat: shift.cashFloat,
+                  sessionCount: s.sessionCount,
+                  totalRevenue: s.totalRevenue,
+                  cashRevenue: s.cashRevenue,
+                  cardRevenue: s.cardRevenue,
+                  transferRevenue: s.transferRevenue,
+                  debtTotal: s.debtTotal,
+                  discountTotal: s.discountTotal,
+                  netRevenue: s.netRevenue,
+                  ordersRevenue: s.ordersRevenue ?? 0,
+                  timeRevenue: s.timeRevenue ?? 0,
+                  expectedCashInDrawer: s.expectedCashInDrawer ?? shift.cashFloat,
+                  endpoint: settings.scanTrackerEndpoint,
+                };
+                navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(() => {
+                  setExportDone(true);
+                  notify?.(t.exportSuccess);
+                  setTimeout(() => setExportDone(false), 3000);
+                });
+              }}
+              className="btn w-full py-3 text-sm"
+              style={{
+                background: exportDone
+                  ? "color-mix(in srgb, var(--green) 10%, transparent)"
+                  : "color-mix(in srgb, var(--accent) 10%, transparent)",
+                color: exportDone ? "var(--green)" : "var(--accent)",
+                borderColor: exportDone
+                  ? "color-mix(in srgb, var(--green) 25%, transparent)"
+                  : "color-mix(in srgb, var(--accent) 25%, transparent)",
+              }}>
+              {exportDone ? `✅ ${t.exportSuccess}` : `📤 ${t.exportToApi}`}
+            </button>
+          )}
         </div>
       </div>
     </div>
