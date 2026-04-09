@@ -109,6 +109,10 @@ export default function CashierSystem() {
   const [pendingQrCount, setPendingQrCount] = useState(0);
   const [qrToast, setQrToast] = useState<{ room_name: string; item_name: string; item_icon: string } | null>(null);
 
+  // ── Alarm state: rooms with active alarm (< 5 min remaining) ──
+  const [alarmItemIds, setAlarmItemIds] = useState<Set<string>>(new Set());
+  const alarmSoundRef = useRef<number>(0); // counter for repeating alarm sound
+
   // ── Sound + warning tracking ──
   const warnedItemsRef = useRef<Set<string>>(new Set());
 
@@ -530,7 +534,6 @@ export default function CashierSystem() {
         setPendingQrCount((p) => p + 1);
         playSound("qrOrder");
         setQrToast({ room_name: o.room_name, item_name: o.item_name, item_icon: o.item_icon });
-        setTimeout(() => setQrToast(null), 6000);
       })
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "qr_orders",
@@ -548,18 +551,20 @@ export default function CashierSystem() {
     const iv = setInterval(() => {
       const ts = Date.now();
       setNow(ts);
-      // Time-warning sound: play once per session when < 5 minutes remain
+      const newAlarms = new Set(alarmItemIds);
+      let alarmsChanged = false;
+
       Object.entries(sessions).forEach(([itemId, sess]) => {
         if (!sess || sess.durationMins === 0) return; // open sessions skip
         const elapsed = ts - sess.startTime;
         const grace = sess.graceMins || 0;
         const totalMs = (sess.durationMins + grace) * 60000;
         const remaining = totalMs - elapsed;
-        const warnMins = settings.whatsappNotifyMins ?? 5;
-        if (remaining > 0 && remaining <= warnMins * 60000 && !warnedItemsRef.current.has(itemId)) {
+
+        // ── WhatsApp at 10 minutes (one-time) ──
+        const whatsappMins = settings.whatsappNotifyMins ?? 10;
+        if (remaining > 0 && remaining <= whatsappMins * 60000 && !warnedItemsRef.current.has(itemId)) {
           warnedItemsRef.current.add(itemId);
-          playSound("timeWarning");
-          // WhatsApp notification to customer if phone is available
           if (sess.phone) {
             const itemName = floors.flatMap((f) => f.zones.flatMap((z) => z.items)).find((i) => i.id === itemId)?.name || itemId;
             const minsLeft = Math.ceil(remaining / 60000);
@@ -570,11 +575,42 @@ export default function CashierSystem() {
             window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
           }
         }
+
+        // ── Persistent alarm at 5 minutes ──
+        if (remaining > 0 && remaining <= 5 * 60000) {
+          if (!newAlarms.has(itemId)) {
+            newAlarms.add(itemId);
+            alarmsChanged = true;
+            playSound("timeWarning"); // first alarm sound
+          }
+        }
+        // Auto-remove alarm when session ends or goes overtime
+        if (remaining <= 0 && newAlarms.has(itemId)) {
+          newAlarms.delete(itemId);
+          alarmsChanged = true;
+        }
       });
+
+      // Remove alarms for sessions that no longer exist
+      for (const id of newAlarms) {
+        if (!sessions[id]) { newAlarms.delete(id); alarmsChanged = true; }
+      }
+      if (alarmsChanged) setAlarmItemIds(newAlarms);
+
+      // ── Repeat alarm sound every 10 seconds for active alarms ──
+      alarmSoundRef.current++;
+      if (alarmSoundRef.current % 10 === 0 && newAlarms.size > 0) {
+        playSound("timeWarning");
+      }
+
+      // ── Repeat QR sound every 15 seconds for pending orders ──
+      if (alarmSoundRef.current % 15 === 0 && pendingQrCount > 0) {
+        playSound("qrOrder");
+      }
     }, 1000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions]);
+  }, [sessions, alarmItemIds, pendingQrCount]);
 
   const notify = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
@@ -887,6 +923,7 @@ export default function CashierSystem() {
     setSessions((p) => { const n = { ...p }; delete n[itemId]; return n; });
     setOrders((p) => { const n = { ...p }; delete n[itemId]; return n; });
     warnedItemsRef.current.delete(itemId);
+    setAlarmItemIds((prev) => { const n = new Set(prev); n.delete(itemId); return n; });
     notify(t.sessionEnded + " ✓"); setView("main"); setSelItem(null);
     return record.id;
   };
@@ -1147,6 +1184,54 @@ export default function CashierSystem() {
         </div>
       )}
 
+      {/* ═══ ALARM BANNER — sessions with < 5 min remaining ═══ */}
+      {alarmItemIds.size > 0 && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[997] anim-fade" style={{ maxWidth: 500, width: "90%" }}>
+          <div className="card px-4 py-3" style={{
+            borderColor: "color-mix(in srgb, var(--red) 50%, transparent)",
+            background: "color-mix(in srgb, var(--red) 12%, var(--surface))",
+            boxShadow: "0 8px 30px rgba(239,68,68,0.2)",
+          }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold" style={{ color: "var(--red)" }}>
+                🔔 {isRTL ? "تنبيه — وقت الجلسة يوشك على الانتهاء" : "Alert — Session time ending soon"}
+              </span>
+              <button onClick={() => setAlarmItemIds(new Set())}
+                className="btn text-xs px-3 py-1"
+                style={{ background: "color-mix(in srgb, var(--red) 15%, transparent)", color: "var(--red)", borderColor: "color-mix(in srgb, var(--red) 25%, transparent)" }}>
+                🔕 {isRTL ? "إيقاف الكل" : "Stop All"}
+              </button>
+            </div>
+            {Array.from(alarmItemIds).map((itemId) => {
+              const sess = sessions[itemId];
+              const info = getInfo(itemId);
+              if (!sess || !info) return null;
+              const remaining = (sess.durationMins + (sess.graceMins || 0)) * 60000 - (now - sess.startTime);
+              const minsLeft = Math.max(0, Math.ceil(remaining / 60000));
+              return (
+                <div key={itemId} className="flex items-center justify-between py-1.5"
+                  style={{ borderTop: "1px solid color-mix(in srgb, var(--red) 10%, transparent)" }}>
+                  <div>
+                    <span className="text-xs font-bold" style={{ color: "var(--text)" }}>
+                      {info.name}
+                    </span>
+                    <span className="text-xs mx-2" style={{ color: "var(--text2)" }}>{sess.customerName}</span>
+                    <span className="text-xs font-bold" style={{ color: "var(--red)" }}>
+                      ⏱ {isRTL ? `باقي ${minsLeft} د` : `${minsLeft}m left`}
+                    </span>
+                  </div>
+                  <button onClick={() => setAlarmItemIds((prev) => { const n = new Set(prev); n.delete(itemId); return n; })}
+                    className="text-[10px] px-2 py-0.5 rounded"
+                    style={{ background: "color-mix(in srgb, var(--text2) 10%, transparent)", color: "var(--text2)", border: "none", cursor: "pointer" }}>
+                    {isRTL ? "إيقاف" : "Dismiss"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ═══ DESKTOP SIDEBAR NAV ═══ */}
       <nav className="app-nav">
         <div className="text-center mb-8">
@@ -1380,14 +1465,16 @@ export default function CashierSystem() {
                       const isManualZone = zone.pricingMode === "manual";
                       const isMaint = item.status === "maintenance";
                       const isDisabled = item.status === "disabled";
+                      const isNearEnd = isAct && !isOp && tot && tot.remaining > 0 && tot.remaining <= 10 * 60000;
+                      const isAlarm = alarmItemIds.has(item.id);
                       const itemBooking = bookings.find((b) => b.itemId === item.id && b.status === "upcoming");
                       const custMembership = isAct && sess ? memberships.find((m) => m.status === "active" && customers.find((c) => c.id === m.customerId && c.name === sess.customerName)) : null;
                       return (
                         <div key={item.id} onClick={() => {
-                          if (isMaint || isDisabled) return; // don't open if in maintenance/disabled
+                          if (isMaint || isDisabled) return;
                           setSelItem(item.id); setView("detail");
                         }}
-                          className={`card p-4 cursor-pointer relative overflow-hidden anim-fade ${isOT ? "card-danger" : isAct ? "card-active" : ""}`}
+                          className={`card p-4 cursor-pointer relative overflow-hidden anim-fade ${isOT ? "card-danger" : isNearEnd ? "card-warning" : isAct ? "card-active" : ""}`}
                           style={{
                             minHeight: 120,
                             ...(isMaint ? { borderColor: "color-mix(in srgb, var(--yellow) 25%, transparent)", background: "color-mix(in srgb, var(--yellow) 4%, var(--surface))", opacity: 0.75 } : {}),
@@ -1420,7 +1507,7 @@ export default function CashierSystem() {
                               ⭐ {t.memberBadge}
                             </div>
                           )}
-                          {isAct && <div className={`absolute top-3 ${isRTL ? "left-3" : "right-3"} w-2 h-2 rounded-full anim-pulse`} style={{ background: isOT ? "var(--red)" : "var(--green)" }} />}
+                          {isAct && <div className={`absolute top-3 ${isRTL ? "left-3" : "right-3"} w-2 h-2 rounded-full anim-pulse`} style={{ background: isOT ? "var(--red)" : isNearEnd ? "var(--red)" : "var(--green)" }} />}
                           <div className="font-bold text-sm" style={{ color: isMaint ? "var(--yellow)" : "var(--text)" }}>{item.name}</div>
                           {item.sub && <div className="text-[10px] mt-0.5" style={{ color: "var(--text2)", opacity: 0.5 }}>{item.sub}</div>}
                           {isAct && sess && tot ? (
@@ -1438,7 +1525,7 @@ export default function CashierSystem() {
                                 </div>
                               ) : (
                                 <>
-                                  <div className="text-2xl font-bold mt-1 font-mono tabular-nums" style={{ color: sess.sessionType === "match" ? "var(--green)" : sess.sessionType === "walkin" ? "var(--green)" : isOT ? "var(--red)" : "var(--accent)", letterSpacing: "0.05em" }}>
+                                  <div className="text-2xl font-bold mt-1 font-mono tabular-nums" style={{ color: sess.sessionType === "match" ? "var(--green)" : sess.sessionType === "walkin" ? "var(--green)" : isOT ? "var(--red)" : isNearEnd ? "var(--red)" : "var(--accent)", letterSpacing: "0.05em" }}>
                                     {isOp ? fmtD(tot.elapsed) : fmtD(Math.max(0, tot.remaining))}
                                   </div>
                                   {isOT && <div className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--red)" }}>⚠ {t.overtime}</div>}
