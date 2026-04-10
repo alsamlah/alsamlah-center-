@@ -878,6 +878,10 @@ export default function CashierSystem() {
       if (tenantId && sessions[itemId]) syncSession(tenantId, branchId, itemId, sessions[itemId], updated[itemId]).catch(() => {});
       return updated;
     });
+    // Auto-decrement stock if tracking is enabled for this menu item
+    if (mi.trackStock && (mi.stock ?? 0) > 0) {
+      setMenu((prev) => prev.map((m) => m.id === mi.id ? { ...m, stock: Math.max(0, (m.stock ?? 0) - 1) } : m));
+    }
     notify(`${mi.name} ✓`);
   };
 
@@ -953,12 +957,24 @@ export default function CashierSystem() {
           };
           return updated;
         }
-        return [...prev, {
+        // New customer — check for referral and award welcome points + referrer bonus
+        const referralWelcome = settings.referralWelcomePoints ?? 50;
+        const referralBonus = settings.referralBonusPoints ?? 100;
+        const newCustomer = {
           id: uid(), name: sess.customerName, phone: sess.phone || "",
-          totalVisits: 1, totalSpent: finalT, points: earnedPoints,
+          totalVisits: 1, totalSpent: finalT, points: earnedPoints + referralWelcome,
           joinDate: Date.now(), lastVisit: Date.now(),
           linkedDebtIds: newDebtId ? [newDebtId] : [],
-        }];
+        };
+        // Award referral bonus to existing customer who referred this one (if any)
+        const withBonus = prev.map((c) => {
+          // find referrer linked to this new customer via referredBy (already set before session)
+          if (c.id && prev.some((x) => x.referredBy === c.id && x.name.toLowerCase() === sess.customerName.toLowerCase())) {
+            return { ...c, points: c.points + referralBonus, referralCount: (c.referralCount ?? 0) + 1 };
+          }
+          return c;
+        });
+        return [...withBonus, newCustomer];
       });
     }
     // ── Boxing token deduction — deduct tokenCount (playerCount) tokens ──
@@ -1085,7 +1101,7 @@ export default function CashierSystem() {
     notify(t.shiftOpened + " ✓");
   };
 
-  const closeShift = () => {
+  const closeShift = (actualCashInDrawer?: number) => {
     if (!currentShift) return;
     const closeTime = Date.now();
     const recs = history.filter((h) => h.endTime >= currentShift.openedAt && h.endTime <= closeTime);
@@ -1165,6 +1181,8 @@ export default function CashierSystem() {
         madaCount: madaCount > 0 ? madaCount : undefined,
         madaFees: madaFees > 0 ? madaFees : undefined,
         creditFees: creditFees > 0 ? creditFees : undefined,
+        actualCashInDrawer: actualCashInDrawer != null ? actualCashInDrawer : undefined,
+        cashDiscrepancy: actualCashInDrawer != null ? actualCashInDrawer - expectedCashInDrawer : undefined,
       },
     };
     const newHistory = [record, ...shiftHistory.slice(0, 29)];
@@ -1333,6 +1351,23 @@ export default function CashierSystem() {
           </div>
         </div>
       )}
+
+      {/* ═══ LOW STOCK BANNER ═══ */}
+      {(() => {
+        const lowStockItems = menu.filter((m) => m.trackStock && (m.stock ?? 0) <= (m.lowStockThreshold ?? 5));
+        if (lowStockItems.length === 0) return null;
+        return (
+          <div className="fixed z-[995] anim-fade" style={{ bottom: 72, left: isRTL ? 16 : "auto", right: isRTL ? "auto" : 16 }}>
+            <button onClick={() => setView("admin")} className="card px-3 py-2 flex items-center gap-2"
+              style={{ borderColor: "color-mix(in srgb, var(--red) 40%, transparent)", background: "color-mix(in srgb, var(--red) 8%, var(--surface))", cursor: "pointer" }}>
+              <span>📦</span>
+              <span className="text-xs font-semibold" style={{ color: "var(--red)" }}>
+                {lowStockItems.length} {t.itemsNeedReorder}
+              </span>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ═══ DESKTOP SIDEBAR NAV ═══ */}
       <nav className="app-nav">
@@ -1716,7 +1751,7 @@ export default function CashierSystem() {
         {view === "detail" && selItem && (() => {
           const info = getInfo(selItem);
           if (!info) return null;
-          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} onUpdateManualPrice={updateManualPrice} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} switchTargets={sessions[selItem] ? getSwitchTargets(selItem) : []} onSwitchActivity={switchActivity} onPrepay={handlePrepay} />;
+          return <DetailView itemId={selItem} info={info} session={sessions[selItem] || null} orders={orders[selItem] || []} menu={menu} calc={sessions[selItem] ? calcTotal(selItem) : null} onBack={() => { setView("main"); setSelItem(null); }} onStartSession={startSession} onEndSession={endSession} onAddOrder={addOrder} onRemoveOrder={removeOrder} onAddGrace={addGrace} onUpdatePlayerCount={updatePlayerCount} onUpdateManualPrice={updateManualPrice} settings={settings} logo={logo} getInvoiceNo={getInvoiceNo} customers={customers} onHoldSession={holdSession} switchTargets={sessions[selItem] ? getSwitchTargets(selItem) : []} onSwitchActivity={switchActivity} onPrepay={handlePrepay} tenantId={tenantId ?? undefined} />;
         })()}
 
         {view === "qr" && <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto"><QrOrdersPanel tenantId={tenantId} logo={logo} /></div>}
@@ -1785,7 +1820,7 @@ export default function CashierSystem() {
             }}
           />
         )}
-        {view === "dashboard" && <DashboardView history={history} sessions={sessions} floors={floors} settings={settings} logo={logo} />}
+        {view === "dashboard" && <DashboardView history={history} sessions={sessions} floors={floors} settings={settings} logo={logo} tenantId={tenantId ?? undefined} />}
         {view === "bookings" && <BookingsView bookings={bookings} setBookings={setBookings} floors={floors} sessions={sessions} currentUser={user.name} settings={settings} notify={notify} />}
         {view === "memberships" && <MembershipsView membershipPlans={membershipPlans} setMembershipPlans={setMembershipPlans} memberships={memberships} setMemberships={setMemberships} customers={customers} isManager={isManager} settings={settings} notify={notify} />}
         {view === "promotions" && <PromotionsView promotions={promotions} setPromotions={setPromotions} isManager={isManager} settings={settings} notify={notify} />}

@@ -13,7 +13,7 @@ interface Props {
   shiftHistory: ShiftRecord[];
   history: HistoryRecord[];
   onOpen: (cashFloat: number) => void;
-  onClose: () => void;
+  onClose: (actualCashInDrawer?: number) => void;
   user: UserLogin;
   settings: SystemSettings;
   isManager: boolean;
@@ -30,6 +30,7 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
 
   const [cashFloatInput, setCashFloatInput] = useState("");
   const [confirmClose, setConfirmClose] = useState(false);
+  const [actualCashInput, setActualCashInput] = useState("");
   const [historyFilter, setHistoryFilter] = useState("");
 
   // Revenue for current open shift (from history records that ended after shift opened)
@@ -37,6 +38,8 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
     ? history.filter((h) => h.endTime >= currentShift.openedAt)
     : [];
   const shiftRevenue = shiftRecords.reduce((s, h) => s + h.total, 0);
+  const shiftCashRevenue = shiftRecords.filter((h) => h.payMethod === "cash").reduce((s, h) => s + h.total, 0);
+  const expectedCash = (currentShift?.cashFloat ?? 0) + shiftCashRevenue;
 
   const handleOpen = () => {
     const cashFloat = parseFloat(cashFloatInput) || 0;
@@ -45,8 +48,10 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
   };
 
   const handleClose = () => {
-    onClose();
+    const actual = actualCashInput !== "" ? Number(actualCashInput) : undefined;
+    onClose(actual);
     setConfirmClose(false);
+    setActualCashInput("");
   };
 
   return (
@@ -118,15 +123,41 @@ export default function ShiftView({ currentShift, shiftHistory, history, onOpen,
               {isManager ? `🔒 ${t.closeShift}` : `🔒 ${t.managerOnlyClose}`}
             </button>
           ) : (
-            <div className="flex gap-2">
-              <button onClick={handleClose}
-                className="btn btn-danger flex-1 py-3 font-bold text-sm">
-                {t.confirmCloseShift}
-              </button>
-              <button onClick={() => setConfirmClose(false)}
-                className="btn flex-1 py-3 text-sm" style={{ color: "var(--text2)" }}>
-                {t.cancel}
-              </button>
+            <div>
+              {/* Actual cash reconciliation */}
+              <div className="mb-3 p-3 rounded-xl" style={{ background: "color-mix(in srgb, var(--accent) 6%, var(--surface))", border: "1px solid var(--border)" }}>
+                <div className="text-xs font-semibold mb-2" style={{ color: "var(--text2)" }}>
+                  💰 {t.enterActualCash}
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="number" min="0" step="0.01"
+                    className="input flex-1 text-center font-bold text-lg"
+                    placeholder="0.00" value={actualCashInput}
+                    onChange={(e) => setActualCashInput(e.target.value)} dir="ltr" />
+                  <span style={{ color: "var(--text2)" }}>﷼</span>
+                </div>
+                {actualCashInput !== "" && (
+                  <div className="text-xs font-semibold text-center mt-1">
+                    <span style={{ color: "var(--text2)" }}>{isRTL ? "المتوقع:" : "Expected:"} {expectedCash.toFixed(2)} ﷼ </span>
+                    {(() => {
+                      const diff = Number(actualCashInput) - expectedCash;
+                      const color = diff === 0 ? "var(--green)" : diff > 0 ? "var(--yellow)" : "var(--red)";
+                      const label = diff === 0 ? `✓ ${t.cashMatch}` : diff > 0 ? `↑ ${t.cashSurplus} ${Math.abs(diff).toFixed(2)} ﷼` : `↓ ${t.cashShortage} ${Math.abs(diff).toFixed(2)} ﷼`;
+                      return <span style={{ color }}>{label}</span>;
+                    })()}
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleClose}
+                  className="btn btn-danger flex-1 py-3 font-bold text-sm">
+                  {t.confirmCloseShift}
+                </button>
+                <button onClick={() => { setConfirmClose(false); setActualCashInput(""); }}
+                  className="btn flex-1 py-3 text-sm" style={{ color: "var(--text2)" }}>
+                  {t.cancel}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -296,6 +327,20 @@ function EodReportModal({ shift, settings, logo, onDismiss, notify }: {
               </div>
             </div>
           </div>
+
+          {/* Cash reconciliation result */}
+          {s.actualCashInDrawer != null && (
+            <div className="flex items-center justify-between text-xs px-3 py-2 rounded-xl mb-1"
+              style={{
+                background: s.cashDiscrepancy === 0 ? "color-mix(in srgb, var(--green) 8%, var(--surface))" : (s.cashDiscrepancy ?? 0) > 0 ? "color-mix(in srgb, var(--yellow) 8%, var(--surface))" : "color-mix(in srgb, var(--red) 8%, var(--surface))",
+                border: `1px solid ${s.cashDiscrepancy === 0 ? "color-mix(in srgb, var(--green) 25%, transparent)" : (s.cashDiscrepancy ?? 0) > 0 ? "color-mix(in srgb, var(--yellow) 25%, transparent)" : "color-mix(in srgb, var(--red) 25%, transparent)"}`,
+              }}>
+              <span style={{ color: "var(--text2)" }}>💰 {t.actualCash}: <strong>{fmtMoney(s.actualCashInDrawer)} ﷼</strong></span>
+              <span style={{ color: s.cashDiscrepancy === 0 ? "var(--green)" : (s.cashDiscrepancy ?? 0) > 0 ? "var(--yellow)" : "var(--red)", fontWeight: 700 }}>
+                {s.cashDiscrepancy === 0 ? `✓ ${t.cashMatch}` : (s.cashDiscrepancy ?? 0) > 0 ? `↑ ${t.cashSurplus} ${Math.abs(s.cashDiscrepancy!).toFixed(2)} ﷼` : `↓ ${t.cashShortage} ${Math.abs(s.cashDiscrepancy!).toFixed(2)} ﷼`}
+              </span>
+            </div>
+          )}
 
           {/* Revenue summary */}
           <div className="grid grid-cols-2 gap-2">

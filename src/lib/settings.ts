@@ -19,6 +19,8 @@ export interface SystemSettings {
   whatsappNotifyMins?: number;  // minutes before session end to send WhatsApp notification (default 5)
   monthlyTokens?: number;       // boxing machine monthly token refill amount (default 50)
   alertThreshold?: number;      // boxing token low-balance alert threshold (default 10)
+  referralBonusPoints?: number;   // points awarded to referrer on first referred visit (default 100)
+  referralWelcomePoints?: number; // welcome points for new referred customer (default 50)
 }
 
 export const DEFAULT_SETTINGS: SystemSettings = {
@@ -33,6 +35,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   vatEnabled: false,
   monthlyTokens: 50,
   alertThreshold: 10,
+  referralBonusPoints: 100,
+  referralWelcomePoints: 50,
 };
 
 export const FONTS: Record<FontFamily, { name: string; nameAr: string; css: string; google: string }> = {
@@ -288,6 +292,26 @@ export const T: Record<Language, Record<string, string>> = {
     tokensRemaining: "عملة متبقية", monthlyTokens: "عملات الشهر",
     alertThreshold: "حد التنبيه", tokenMode: "نظام العملات",
     noTokenLog: "لا يوجد سجل بعد", tokenDeduct: "خصم", tokenAdd: "إضافة",
+    // Referral
+    referral: "الإحالة", referredBy: "تمت إحالته من", referralBonus: "مكافأة الإحالة",
+    referralCount: "عدد الإحالات", referralWelcome: "هدية الترحيب",
+    noReferrer: "بدون إحالة", selectReferrer: "اختر العميل المُحيل",
+    referralBonusPoints: "نقاط مكافأة المُحيل", referralWelcomePoints: "نقاط ترحيب العميل الجديد",
+    referralPointsAwarded: "تم منح نقاط الإحالة",
+    // Session rating
+    rateExperience: "قيّم تجربتك", ratingSubmitted: "شكراً! تم استلام تقييمك",
+    avgRating: "متوسط التقييم", ratingCount: "عدد التقييمات", addRatingNote: "ملاحظة (اختياري)",
+    rateSession: "تقييم الجلسة", ratingThanks: "نشكر تقييمك",
+    // Reorder
+    itemsNeedReorder: "منتج يحتاج إعادة طلب", reorderNow: "اطلب الآن",
+    // Cash reconciliation
+    actualCash: "المبلغ الفعلي في الصندوق", cashDiscrepancy: "الفرق",
+    cashSurplus: "فائض", cashShortage: "عجز", cashMatch: "مطابق",
+    enterActualCash: "أدخل المبلغ المعدود في الصندوق",
+    // VAT report
+    vatReport: "تقرير ضريبة القيمة المضافة", vatCollected: "الضريبة المحصلة (١٥٪)",
+    taxBase: "الأساس قبل الضريبة", vatRegistrationReminder: "أدخل رقمك الضريبي في الإعدادات لتفعيل هذا التقرير",
+    exportVatReport: "تصدير تقرير الضريبة",
   },
   en: {
     appName: "ALSAMLAH",
@@ -509,5 +533,25 @@ export const T: Record<Language, Record<string, string>> = {
     tokensRemaining: "tokens remaining", monthlyTokens: "Monthly Tokens",
     alertThreshold: "Alert Threshold", tokenMode: "Token Mode",
     noTokenLog: "No log entries yet", tokenDeduct: "Deduct", tokenAdd: "Add",
+    // Referral
+    referral: "Referral", referredBy: "Referred by", referralBonus: "Referral Bonus",
+    referralCount: "Referrals Made", referralWelcome: "Welcome Gift",
+    noReferrer: "No referrer", selectReferrer: "Select referring customer",
+    referralBonusPoints: "Referrer Bonus Points", referralWelcomePoints: "New Customer Welcome Points",
+    referralPointsAwarded: "Referral points awarded",
+    // Session rating
+    rateExperience: "Rate your experience", ratingSubmitted: "Thank you! Rating received",
+    avgRating: "Avg Rating", ratingCount: "Ratings", addRatingNote: "Note (optional)",
+    rateSession: "Rate session", ratingThanks: "Thanks for rating",
+    // Reorder
+    itemsNeedReorder: "items need reorder", reorderNow: "Reorder Now",
+    // Cash reconciliation
+    actualCash: "Actual Cash in Drawer", cashDiscrepancy: "Discrepancy",
+    cashSurplus: "Surplus", cashShortage: "Shortage", cashMatch: "Matched",
+    enterActualCash: "Enter the counted amount in the drawer",
+    // VAT report
+    vatReport: "VAT Report", vatCollected: "VAT Collected (15%)",
+    taxBase: "Tax Base (before VAT)", vatRegistrationReminder: "Enter your VAT number in settings to enable this report",
+    exportVatReport: "Export VAT Report",
   },
 };

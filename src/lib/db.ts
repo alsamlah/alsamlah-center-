@@ -929,3 +929,29 @@ export async function syncMaintenanceLogs(tenantId: string, branchId: string | n
     }
   } catch { /* table may not exist yet */ }
 }
+
+// ── Session Ratings ───────────────────────────────────────────────────────────
+
+export async function submitRating(tenantId: string, recordId: string, rating: number, note: string): Promise<void> {
+  await supabase.from("session_ratings").insert({
+    id: `${recordId}-${Date.now()}`,
+    tenant_id: tenantId,
+    record_id: recordId,
+    rating,
+    note: note.trim(),
+    rated_at: Date.now(),
+  });
+}
+
+export async function getAverageRating(tenantId: string, since?: number): Promise<{ avg: number; count: number }> {
+  try {
+    let q = supabase.from("session_ratings").select("rating").eq("tenant_id", tenantId);
+    if (since) q = q.gte("rated_at", since);
+    const { data } = await q;
+    if (!data || data.length === 0) return { avg: 0, count: 0 };
+    const avg = data.reduce((s: number, r: { rating: number }) => s + r.rating, 0) / data.length;
+    return { avg: Math.round(avg * 10) / 10, count: data.length };
+  } catch {
+    return { avg: 0, count: 0 };
+  }
+}

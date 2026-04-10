@@ -236,6 +236,9 @@ export interface ShiftRecord extends Shift {
     // Credit card fees
     creditRevenue?: number;
     creditFees?: number;
+    // Cash reconciliation
+    actualCashInDrawer?: number;
+    cashDiscrepancy?: number;  // actual - expected (positive = surplus, negative = shortage)
   };
 }
 
@@ -265,6 +268,10 @@ export interface Customer {
   lastVisit: number;
   linkedDebtIds?: string[];
   membershipId?: string;
+  // Referral system
+  referredBy?: string;        // customer ID of the referrer
+  referralCount?: number;     // how many people this customer referred
+  referralRewarded?: boolean; // referral bonus already given to referrer (prevent double reward)
 }
 
 // ── Item Status (Maintenance) ──

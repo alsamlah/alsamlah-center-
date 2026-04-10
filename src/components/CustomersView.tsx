@@ -150,6 +150,43 @@ export default function CustomersView({ customers, setCustomers, settings, notif
 
                     <div className="flex items-center justify-between text-[10px] mb-3" style={{ color: "var(--text2)" }}>
                       <span>📅 {isRTL ? "تاريخ التسجيل" : "Member since"}: {fmtDate(c.joinDate)}</span>
+                      {(c.referralCount ?? 0) > 0 && (
+                        <span style={{ color: "var(--accent)" }}>🔗 {c.referralCount} {t.referralCount}</span>
+                      )}
+                    </div>
+
+                    {/* Referral */}
+                    <div className="mb-3">
+                      <label className="text-[10px] font-semibold mb-1 block" style={{ color: "var(--text2)" }}>🔗 {t.referredBy}</label>
+                      {c.referredBy ? (
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs px-2 py-1 rounded-lg" style={{ background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)" }}>
+                            {customers.find((x) => x.id === c.referredBy)?.name ?? t.noReferrer}
+                          </span>
+                          <button className="text-[10px]" style={{ color: "var(--text2)" }}
+                            onClick={() => setCustomers(customers.map((x) => x.id === c.id ? { ...x, referredBy: undefined } : x))}>
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <select
+                          className="input w-full text-xs"
+                          value=""
+                          onChange={(e) => {
+                            if (!e.target.value) return;
+                            const updated = customers.map((x) => {
+                              if (x.id === c.id) return { ...x, referredBy: e.target.value };
+                              if (x.id === e.target.value) return { ...x, referralCount: (x.referralCount ?? 0) + 1 };
+                              return x;
+                            });
+                            setCustomers(updated);
+                          }}>
+                          <option value="">{t.selectReferrer}</option>
+                          {customers.filter((x) => x.id !== c.id).map((x) => (
+                            <option key={x.id} value={x.id}>{x.name}</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
 
                     {/* Notes (editable) */}

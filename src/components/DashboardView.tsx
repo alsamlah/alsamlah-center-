@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 import type { HistoryRecord, Session, Floor } from "@/lib/supabase";
 import { type SystemSettings, T } from "@/lib/settings";
 import { fmtMoney, getBusinessDay } from "@/lib/utils";
@@ -12,6 +12,7 @@ interface DashboardViewProps {
   floors: Floor[];
   settings: SystemSettings;
   logo?: string | null;
+  tenantId?: string | null;
 }
 
 /* ── helpers ── */
@@ -30,7 +31,7 @@ function pct(a: number, b: number) {
 
 /* ── component ── */
 
-export default function DashboardView({ history, sessions, floors, settings }: DashboardViewProps) {
+export default function DashboardView({ history, sessions, floors, settings, tenantId }: DashboardViewProps) {
   const t = T[settings.lang];
   const isRTL = settings.lang === "ar";
   const eod = settings.endOfDayHour ?? 5;
@@ -66,6 +67,15 @@ export default function DashboardView({ history, sessions, floors, settings }: D
     yesterdayRecords.length > 0
       ? Math.round(yesterdayRecords.reduce((s, r) => s + r.duration, 0) / yesterdayRecords.length / 60000)
       : 0;
+
+  // KPI 5: average rating (fetched from Supabase)
+  const [avgRating, setAvgRating] = useState<{ avg: number; count: number } | null>(null);
+  useEffect(() => {
+    if (!tenantId) return;
+    import("@/lib/db").then(({ getAverageRating }) => {
+      getAverageRating(tenantId).then(setAvgRating).catch(() => {});
+    });
+  }, [tenantId]);
 
   /* ── peak hours ── */
   const peakData = useMemo(() => {
@@ -255,6 +265,17 @@ export default function DashboardView({ history, sessions, floors, settings }: D
           subColor="var(--text2)"
           accentColor="var(--yellow)"
         />
+        {/* avg rating */}
+        {avgRating && avgRating.count > 0 && (
+          <KpiCard
+            icon="⭐"
+            label={t.avgRating}
+            value={<span>{avgRating.avg.toFixed(1)}</span>}
+            sub={`${avgRating.count} ${t.ratingCount}`}
+            subColor="var(--text2)"
+            accentColor="var(--yellow)"
+          />
+        )}
       </div>
 
       {/* ── charts row ── */}

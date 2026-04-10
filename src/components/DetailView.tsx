@@ -28,9 +28,10 @@ interface Props {
   switchTargets?: SwitchTarget[];
   onSwitchActivity?: (fromItemId: string, toItemId: string) => void;
   onPrepay?: (id: string, amount: number, method: string) => void;
+  tenantId?: string;
 }
 
-export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, onUpdateManualPrice, settings, logo, getInvoiceNo, customers, onHoldSession, switchTargets, onSwitchActivity, onPrepay }: Props) {
+export default function DetailView({ itemId, info, session, orders, menu, calc, onBack, onStartSession, onEndSession, onAddOrder, onRemoveOrder, onAddGrace, onUpdatePlayerCount, onUpdateManualPrice, settings, logo, getInvoiceNo, customers, onHoldSession, switchTargets, onSwitchActivity, onPrepay, tenantId }: Props) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuCat, setMenuCat] = useState("");
   const [selDur, setSelDur] = useState(30);
@@ -50,6 +51,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   const [holdDisc, setHoldDisc] = useState("");
   const [showPrepay, setShowPrepay] = useState(false);
   const [prepayMethod, setPrepayMethod] = useState("cash");
+  const [ratingRecordId, setRatingRecordId] = useState<string | null>(null);
 
   const isRoomsZone = info.zone.id === MATCH_ZONE_ID;
   const isRoom10 = itemId === ROOM_10_ID;
@@ -847,7 +849,8 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                         sellerNameAr: settings.sellerNameAr || "",
                       }, opt.type);
                     }
-                    onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc, { payMethods: pendingPay.payMethods, splitCount: pendingPay.splitCount });
+                    const rid = await onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc, { payMethods: pendingPay.payMethods, splitCount: pendingPay.splitCount });
+                    if (rid) setRatingRecordId(rid as string);
                     setPendingPay(null);
                   }}
                   className={`btn py-3 text-sm ${opt.type === "thermal" ? "" : opt.type === "a4" ? "" : "btn-ghost"}`}
@@ -870,6 +873,7 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                   : pendingPay.method;
                 // End session first to get the record ID for receipt URL
                 const recordId = await onEndSession(itemId, pendingPay.method, pendingPay.debt, pendingPay.disc, { payMethods: pendingPay.payMethods, splitCount: pendingPay.splitCount });
+                if (recordId) setRatingRecordId(recordId as string);
                 setPendingPay(null);
                 const receiptUrl = recordId
                   ? `${window.location.origin}/receipt/${recordId}`
@@ -895,6 +899,33 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
               className="btn w-full py-3 text-sm mt-3"
               style={{ background: "color-mix(in srgb, var(--green) 10%, transparent)", color: "var(--green)", borderColor: "color-mix(in srgb, var(--green) 25%, transparent)" }}>
               📱 {t.whatsapp}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rating QR — shown after session ends ── */}
+      {ratingRecordId && tenantId && (
+        <div className="fixed inset-0 z-[501] flex items-end md:items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}>
+          <div className="card p-6 w-full max-w-xs text-center anim-fade-up">
+            <button onClick={() => setRatingRecordId(null)}
+              className="absolute top-3 left-3 text-xl" style={{ color: "var(--text2)", background: "none", border: "none", cursor: "pointer" }}>✕</button>
+            <div className="text-2xl mb-2">⭐</div>
+            <div className="text-sm font-bold mb-1" style={{ color: "var(--text)" }}>
+              {isRTL ? "قيّم تجربتك" : "Rate your experience"}
+            </div>
+            <div className="text-xs mb-4" style={{ color: "var(--text2)" }}>
+              {isRTL ? "امسح الكود للتقييم" : "Scan to rate"}
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : ""}/rate/${ratingRecordId}?t=${tenantId}`)}`}
+              width={150} height={150} alt="rating QR"
+              className="mx-auto rounded-xl mb-4"
+            />
+            <button onClick={() => setRatingRecordId(null)} className="btn btn-ghost w-full py-2 text-sm">
+              {isRTL ? "إغلاق" : "Close"}
             </button>
           </div>
         </div>

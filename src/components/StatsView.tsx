@@ -6,6 +6,7 @@ import type { SystemSettings } from "@/lib/settings";
 import { T } from "@/lib/settings";
 import { fmtMoney, fmtD, fmtTime, fmtDate, getBusinessDay } from "@/lib/utils";
 import { printStatsReport } from "@/lib/printReceipt";
+import { vatFromInclusive, baseFromInclusive } from "@/lib/zatca";
 import SarSymbol from "./SarSymbol";
 
 interface Props {
@@ -20,7 +21,7 @@ interface Props {
 }
 
 type Period = "today" | "week" | "month" | "all";
-type StatsTab = "dashboard" | "summary" | "detailed" | "export";
+type StatsTab = "dashboard" | "summary" | "detailed" | "export" | "vat";
 
 const ZONE_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
 const PAY_COLORS: Record<string, string> = { cash: "#22c55e", card: "#6366f1", transfer: "#f59e0b" };
@@ -535,6 +536,7 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
     summary: isRTL ? "ملخص" : "Summary",
     detailed: isRTL ? "تفصيلي" : "Detailed",
     export: isRTL ? "تصدير" : "Export",
+    vat: isRTL ? "ضريبة القيمة المضافة" : "VAT Report",
   };
   const [exportPeriod, setExportPeriod] = useState<"today" | "week" | "month" | "quarter" | "custom">("today");
   const [exportFrom, setExportFrom] = useState("");
@@ -603,7 +605,7 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
 
       {/* Tabs */}
       <div className="flex gap-2 mb-5">
-        {(["dashboard", "summary", "detailed", ...(isManager ? ["export" as StatsTab] : [])] as StatsTab[]).map((st) => (
+        {(["dashboard", "summary", "detailed", ...(isManager ? ["export" as StatsTab] : []), ...(settings.vatEnabled ? ["vat" as StatsTab] : [])] as StatsTab[]).map((st) => (
           <button key={st} onClick={() => setTab(st)}
             className="btn px-4 py-2 text-xs"
             style={tab === st ? {
@@ -611,7 +613,7 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
               color: "var(--accent)",
               borderColor: "color-mix(in srgb, var(--accent) 25%, transparent)",
             } : { color: "var(--text2)" }}>
-            {st === "dashboard" ? "📊 " : st === "summary" ? "📋 " : st === "export" ? "📤 " : "📄 "}{tabLabels[st]}
+            {st === "dashboard" ? "📊 " : st === "summary" ? "📋 " : st === "export" ? "📤 " : st === "vat" ? "🧾 " : "📄 "}{tabLabels[st]}
           </button>
         ))}
       </div>
@@ -1069,6 +1071,100 @@ export default function StatsView({ history, debts, sessions, role, settings, lo
                   </div>
                 )}
               </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ══════════ TAB 5: VAT REPORT ══════════ */}
+      {tab === "vat" && (
+        <div className="anim-fade">
+          {!settings.vatEnabled || !settings.vatNumber ? (
+            <div className="card p-8 text-center">
+              <div className="text-3xl mb-3">🧾</div>
+              <div className="text-sm font-semibold mb-1" style={{ color: "var(--text)" }}>{t.vatReport}</div>
+              <div className="text-xs" style={{ color: "var(--text2)" }}>{t.vatRegistrationReminder}</div>
+            </div>
+          ) : (() => {
+            const vatTotals = filtered.reduce((acc, r) => ({
+              total: acc.total + r.total,
+              vat: acc.vat + vatFromInclusive(r.total),
+              base: acc.base + baseFromInclusive(r.total),
+            }), { total: 0, vat: 0, base: 0 });
+
+            // Group by month
+            const byMonth: Record<string, { label: string; count: number; total: number; vat: number; base: number }> = {};
+            for (const r of filtered) {
+              const d = new Date(r.endTime);
+              const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+              const label = d.toLocaleDateString(isRTL ? "ar-SA" : "en-US", { year: "numeric", month: "long" });
+              if (!byMonth[key]) byMonth[key] = { label, count: 0, total: 0, vat: 0, base: 0 };
+              byMonth[key].count++;
+              byMonth[key].total += r.total;
+              byMonth[key].vat += vatFromInclusive(r.total);
+              byMonth[key].base += baseFromInclusive(r.total);
+            }
+            const months = Object.entries(byMonth).sort((a, b) => b[0].localeCompare(a[0]));
+
+            return (
+              <>
+                {/* KPI Cards */}
+                <div className="grid grid-cols-3 gap-3 mb-5">
+                  {[
+                    { label: isRTL ? "الإجمالي الشامل" : "Total incl. VAT", val: vatTotals.total, color: "var(--text)" },
+                    { label: t.vatCollected, val: vatTotals.vat, color: "var(--red)" },
+                    { label: t.taxBase, val: vatTotals.base, color: "var(--accent)" },
+                  ].map((kpi) => (
+                    <div key={kpi.label} className="card p-3 text-center">
+                      <div className="text-[10px] mb-1" style={{ color: "var(--text2)" }}>{kpi.label}</div>
+                      <div className="font-bold text-base flex items-center justify-center gap-1" style={{ color: kpi.color }}>
+                        {fmtMoney(kpi.val)} <SarSymbol size={11} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Monthly breakdown */}
+                {months.length > 0 && (
+                  <div className="card overflow-hidden mb-4">
+                    <div className="grid grid-cols-4 gap-0 px-3 py-2 text-[10px] font-semibold" style={{ color: "var(--text2)", borderBottom: "1px solid var(--border)" }}>
+                      <span>{isRTL ? "الشهر" : "Month"}</span>
+                      <span className="text-center">{isRTL ? "جلسات" : "Sessions"}</span>
+                      <span className="text-center">{isRTL ? "ضريبة ١٥٪" : "VAT 15%"}</span>
+                      <span className="text-center">{isRTL ? "الأساس" : "Base"}</span>
+                    </div>
+                    {months.map(([key, m]) => (
+                      <div key={key} className="grid grid-cols-4 gap-0 px-3 py-2.5 text-xs" style={{ borderBottom: "1px solid var(--border)", color: "var(--text)" }}>
+                        <span className="font-medium">{m.label}</span>
+                        <span className="text-center" style={{ color: "var(--text2)" }}>{m.count}</span>
+                        <span className="text-center font-semibold" style={{ color: "var(--red)" }}>{fmtMoney(m.vat)}</span>
+                        <span className="text-center" style={{ color: "var(--accent)" }}>{fmtMoney(m.base)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Export CSV button */}
+                <button
+                  onClick={() => {
+                    const rows = [
+                      [isRTL ? "الشهر" : "Month", isRTL ? "عدد الجلسات" : "Sessions", isRTL ? "الإجمالي" : "Total", isRTL ? "الضريبة 15%" : "VAT 15%", isRTL ? "الأساس" : "Base"],
+                      ...months.map(([, m]) => [m.label, m.count, m.total.toFixed(2), m.vat.toFixed(2), m.base.toFixed(2)]),
+                      ["", "", "", "", ""],
+                      [isRTL ? "الإجمالي" : "Total", filtered.length, vatTotals.total.toFixed(2), vatTotals.vat.toFixed(2), vatTotals.base.toFixed(2)],
+                    ];
+                    const csv = rows.map((r) => r.join(",")).join("\n");
+                    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = `VAT_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="btn w-full py-3 text-sm"
+                  style={{ background: "color-mix(in srgb, var(--green) 10%, transparent)", color: "var(--green)", borderColor: "color-mix(in srgb, var(--green) 25%, transparent)" }}>
+                  📥 {t.exportVatReport}
+                </button>
+              </>
             );
           })()}
         </div>
