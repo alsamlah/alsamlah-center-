@@ -35,12 +35,18 @@ src/
     RoleSelectScreen.tsx     ← PIN-based role selection (after Supabase auth)
     LoginScreen.tsx          ← Legacy PIN login (kept for reference)
     DetailView.tsx           ← Active item view: timer, bill, orders, end session, print modal
-    AdminView.tsx            ← Manager-only: prices, menu, pins, settings, logo, danger
+    AdminView.tsx            ← Manager-only: prices, menu, pins, settings, logo, danger, inventory
     BusinessProfile.tsx      ← Tenant name, logo, branch management
-    ShiftView.tsx            ← Shift management: open/close, cash float, history
+    ShiftView.tsx            ← Shift management: open/close, cash float, history, ScanTracker export
     DebtsView.tsx            ← Debt management with partial payments + print
-    StatsView.tsx            ← Revenue reports and analytics
+    StatsView.tsx            ← Revenue reports, analytics, export tab
     QrOrdersPanel.tsx        ← Real-time QR order monitoring (Supabase realtime)
+    DashboardView.tsx        ← Manager dashboard: KPIs, peak hours, revenue by method, cashier perf
+    BookingsView.tsx         ← Room reservation system with booking badges
+    MembershipsView.tsx      ← Membership plans + active subscriptions + auto-discount
+    PromotionsView.tsx       ← Happy hour, weekend deals, coupon management
+    MaintenanceView.tsx      ← Device status tracking + maintenance cost logs
+    CustomersView.tsx        ← Customer database with notes, linked debts, visit history
     SarSymbol.tsx            ← Official SAMA SAR (﷼) symbol SVG component
   lib/
     supabase.ts              ← TypeScript interfaces + Supabase client
@@ -131,9 +137,18 @@ App loads → AuthProvider checks Supabase session
 | `active_sessions` | Live sessions per tenant, keyed by item_id |
 | `history` | Completed sessions per tenant (JSONB `data` column) |
 | `debts` | Debt records per tenant (JSONB `data` column) |
-| `tenant_settings` | Pins, role_names, settings JSONB per tenant |
+| `tenant_settings` | Pins, role_names, settings, current_shift, shift_history JSONB |
 | `invoice_counter` | Auto-incrementing invoice number per tenant |
 | `qr_orders` | Customer QR orders (room_id, item, qty, status) |
+| `customers` | Customer database per tenant (JSONB `data` column) |
+| `bookings` | Room reservations per tenant (JSONB `data` column) |
+| `membership_plans` | Membership plan definitions per tenant (JSONB `data`) |
+| `memberships` | Active customer memberships per tenant (JSONB `data`) |
+| `promotions` | Promotions/discounts per tenant (JSONB `data` column) |
+| `maintenance_logs` | Device maintenance records per tenant (JSONB `data`) |
+| `tournaments` | Tournament brackets + participants (JSONB `data`) |
+| `special_guests` | VIP/inspector visitor tracking (JSONB `data`) |
+| `inspection_registers` | Equipment/cleaning inspection logs (JSONB `data`) |
 
 ### Supabase RPC
 - `create_tenant_for_user(p_name_ar, p_name_en)` — SECURITY DEFINER, creates tenant + branch + tenant_user atomically for new users
@@ -158,6 +173,12 @@ App loads → AuthProvider checks Supabase session
 | `als-invoice-counter` | `string` (number) | Auto-incrementing invoice number (cache) |
 | `als-shift` | `Shift \| null` | Currently open shift (id, openedAt, openedBy, cashFloat) |
 | `als-shift-history` | `ShiftRecord[]` | Closed shift records with summaries |
+| `als-customers` | `Customer[]` | Customer database with loyalty points |
+| `als-bookings` | `Booking[]` | Room reservations |
+| `als-membership-plans` | `MembershipPlan[]` | Membership plan definitions |
+| `als-memberships` | `Membership[]` | Active customer memberships |
+| `als-promotions` | `Promotion[]` | Happy hour / weekend / coupon promotions |
+| `als-maintenance-logs` | `MaintenanceLog[]` | Device maintenance records |
 
 ---
 
@@ -213,10 +234,31 @@ getBranches(tenantId): Promise<Branch[]>
 upsertBranch(tenantId, branch)
 deleteBranch(branchId)
 
-// Realtime subscriptions
+// Realtime subscriptions (15 total — ALL data must sync)
 subscribeToSessions(tenantId, cb)
 subscribeToHistory(tenantId, cb)
 subscribeToDebts(tenantId, cb)
+subscribeToSpecialGuests(tenantId, cb)
+subscribeToTournaments(tenantId, cb)
+subscribeToRegisters(tenantId, cb)
+subscribeToMenu(tenantId, cb)
+subscribeToFloors(tenantId, cb)
+subscribeToCustomers(tenantId, cb)
+subscribeToBookings(tenantId, cb)
+subscribeToMembershipPlans(tenantId, cb)
+subscribeToMemberships(tenantId, cb)
+subscribeToPromotions(tenantId, cb)
+subscribeToMaintenanceLogs(tenantId, cb)
+subscribeToSettings(tenantId, cb)
+
+// New feature syncs
+syncBookings(tenantId, branchId, bookings)
+syncMembershipPlans(tenantId, branchId, plans)
+syncMemberships(tenantId, branchId, memberships)
+syncPromotions(tenantId, branchId, promotions)
+syncMaintenanceLogs(tenantId, branchId, logs)
+syncShift(tenantId, currentShift, shiftHistory)
+loadShiftData(tenantId)
 ```
 
 ---
@@ -501,16 +543,30 @@ node node_modules\next\dist\bin\next build
 
 ---
 
-## 🔮 Future / Planned Features
+## 🔮 Completed & Planned Features
 
-- [x] ~~Supabase DB sync (replace localStorage)~~ ✅ DONE — hybrid sync in db.ts
-- [x] ~~Multi-tenant architecture~~ ✅ DONE — tenants/branches/tenant_users
-- [x] ~~Multi-device real-time sync~~ ✅ DONE — sessions/history/debts realtime subscriptions wired in CashierSystem
-- [x] ~~Shift management~~ ✅ DONE — ShiftView.tsx, open/close/history, manager-only close
-- [x] ~~WhatsApp receipt sharing~~ ✅ DONE — share button in end-session modal (DetailView)
+- [x] ~~Supabase DB sync~~ ✅ hybrid sync in db.ts
+- [x] ~~Multi-tenant architecture~~ ✅ tenants/branches/tenant_users
+- [x] ~~Multi-device real-time sync~~ ✅ 15 realtime subscriptions with skip flags
+- [x] ~~Shift management~~ ✅ ShiftView.tsx, synced to Supabase (tenant_settings)
+- [x] ~~WhatsApp receipt sharing~~ ✅ share button in end-session modal
+- [x] ~~Customer loyalty~~ ✅ CustomersView with points, visits, spending
+- [x] ~~Smart Dashboard~~ ✅ DashboardView: KPIs, peak hours, revenue by method
+- [x] ~~Booking system~~ ✅ BookingsView: room reservations with badges
+- [x] ~~Memberships~~ ✅ MembershipsView: monthly/hours plans with auto-discount
+- [x] ~~Promotions~~ ✅ PromotionsView: happy hour, weekend, coupons
+- [x] ~~Maintenance tracking~~ ✅ MaintenanceView: device status + cost logs
+- [x] ~~Inventory management~~ ✅ Stock tracking in AdminView menu tab
+- [x] ~~Persistent alarms~~ ✅ 10-min visual warning + 5-min repeating sound + stop button
+- [x] ~~QR persistent notifications~~ ✅ Toast stays until dismissed, sound repeats
+- [x] ~~WhatsApp session alerts~~ ✅ Auto-send at 10 min before end
+- [x] ~~Multi-segment switch pricing~~ ✅ Switch between any zone, each period priced separately
+- [x] ~~Prepaid payment~~ ✅ Collect mid-session, pay difference at end
+- [x] ~~Credit card + bank fees~~ ✅ Mada (0.008/tx) + credit (2.5%)
+- [x] ~~ScanTracker export~~ ✅ Flexible period export in Reports tab
 - [ ] Barcode/QR scanner for quick item selection
-- [ ] Customer loyalty system
+- [ ] Web Push notifications (deferred — see memory)
 
 ---
 
-*Last updated: 2026-04-06 | Project root: `C:\Users\USER\OneDrive\Documents\alsamlah` | Dev port: 3001*
+*Last updated: 2026-04-10 | Project root: `C:\Users\USER\OneDrive\Documents\alsamlah` | Dev port: 3001*
