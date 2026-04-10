@@ -67,13 +67,21 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   // Filter DURATION_OPTS to only show durations that have matching tiers for this zone
   const availableDurations = DURATION_OPTS.filter((d) => {
     if (d.mins === 0) return true; // "مفتوح" always available
-    return zoneTiers.some((t) => t.minutes === d.mins);
+    // If zone has priceTiers: only show durations with matching tiers
+    if (zoneTiers.length > 0) return zoneTiers.some((t) => t.minutes === d.mins);
+    // If zone has NO priceTiers (hourly pricing only): show all standard durations
+    return true;
   });
 
   // Build labels with prices
   const durLabelsWithPrice = availableDurations.map((d) => {
     const tier = zoneTiers.find((t) => t.minutes === d.mins);
     if (tier) return `${d.label}\n${tier.price} ﷼`;
+    // For hourly pricing: calculate from pricePerHour
+    if (d.mins > 0 && info.zone.pricePerHour > 0) {
+      const price = Math.ceil((d.mins / 60) * info.zone.pricePerHour);
+      return `${d.label}\n${price} ﷼`;
+    }
     return d.label; // "مفتوح"
   });
 

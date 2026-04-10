@@ -191,7 +191,18 @@ export default function CashierSystem() {
     loadTenantData(appCtx.tenant.id, appCtx.branch?.id ?? null).then((data) => {
       // Always ensure counter floor is present (virtual floor, not stored in DB)
       const hasCounter = data.floors.some((f) => f.id === COUNTER_FLOOR_ID);
-      setFloors(hasCounter ? data.floors : [...data.floors, COUNTER_FLOOR]);
+      // Migrate: add priceTiers from defaults if missing (zones that should have tiered pricing)
+      const migratedFloors = (hasCounter ? data.floors : [...data.floors, COUNTER_FLOOR]).map((f) => ({
+        ...f,
+        zones: f.zones.map((z) => {
+          if (z.priceTiers?.length || z.pricingMode === "walkin" || z.pricingMode === "manual" || z.pricingMode === "per-hit") return z;
+          // Find matching default zone to copy tiers from
+          const defZone = DEFAULT_FLOORS.flatMap((df) => df.zones).find((dz) => dz.id === z.id);
+          if (defZone?.priceTiers) return { ...z, priceTiers: defZone.priceTiers, pricingMode: defZone.pricingMode || "tiered" };
+          return z;
+        }),
+      }));
+      setFloors(migratedFloors);
       setMenu(data.menu);
       setSessions(data.sessions);
       setOrders(data.orders);
