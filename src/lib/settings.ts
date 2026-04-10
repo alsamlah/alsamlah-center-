@@ -17,6 +17,8 @@ export interface SystemSettings {
   vatEnabled?: boolean;       // show VAT breakdown on invoices (default false until configured)
   scanTrackerEndpoint?: string; // external expense API URL for ScanTracker integration
   whatsappNotifyMins?: number;  // minutes before session end to send WhatsApp notification (default 5)
+  monthlyTokens?: number;       // boxing machine monthly token refill amount (default 50)
+  alertThreshold?: number;      // boxing token low-balance alert threshold (default 10)
 }
 
 export const DEFAULT_SETTINGS: SystemSettings = {
@@ -29,6 +31,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   vatNumber: "",
   sellerNameAr: "",
   vatEnabled: false,
+  monthlyTokens: 50,
+  alertThreshold: 10,
 };
 
 export const FONTS: Record<FontFamily, { name: string; nameAr: string; css: string; google: string }> = {
@@ -276,6 +280,14 @@ export const T: Record<Language, Record<string, string>> = {
     // ── Customer notes ──
     customerNotes: "ملاحظات العميل", linkedDebts: "الديون المرتبطة",
     visitHistory: "سجل الزيارات",
+    // ── Boxing Tokens ──
+    boxingTokens: "رصيد البوكسينج", tokenBalance: "الرصيد الحالي",
+    addTokens: "إضافة رصيد", tokenLog: "سجل الاستخدام",
+    tokenAdded: "تمت إضافة الرصيد",
+    lowTokenAlert: "تنبيه: رصيد البوكسينج منخفض — اطلب عملات زيادة من مندوب الشركة",
+    tokensRemaining: "عملة متبقية", monthlyTokens: "عملات الشهر",
+    alertThreshold: "حد التنبيه", tokenMode: "نظام العملات",
+    noTokenLog: "لا يوجد سجل بعد", tokenDeduct: "خصم", tokenAdd: "إضافة",
   },
   en: {
     appName: "ALSAMLAH",
@@ -489,5 +501,13 @@ export const T: Record<Language, Record<string, string>> = {
     // ── Customer notes ──
     customerNotes: "Customer Notes", linkedDebts: "Linked Debts",
     visitHistory: "Visit History",
+    // ── Boxing Tokens ──
+    boxingTokens: "Boxing Tokens", tokenBalance: "Current Balance",
+    addTokens: "Add Tokens", tokenLog: "Usage Log",
+    tokenAdded: "Tokens added successfully",
+    lowTokenAlert: "Alert: Boxing token balance is low — request more tokens from your supplier",
+    tokensRemaining: "tokens remaining", monthlyTokens: "Monthly Tokens",
+    alertThreshold: "Alert Threshold", tokenMode: "Token Mode",
+    noTokenLog: "No log entries yet", tokenDeduct: "Deduct", tokenAdd: "Add",
   },
 };

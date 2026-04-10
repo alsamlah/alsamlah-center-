@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, MATCH_PRICE, TIER_GRACE_MINUTES, COUNTER_FLOOR, COUNTER_FLOOR_ID } from "@/lib/defaults";
+import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES, DEFAULT_BOXING_TOKENS, MATCH_PRICE, TIER_GRACE_MINUTES, COUNTER_FLOOR, COUNTER_FLOOR_ID } from "@/lib/defaults";
 import { DEFAULT_SETTINGS, FONTS, FONT_SIZES, THEMES, T } from "@/lib/settings";
 import { supabase } from "@/lib/supabase";
-import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament, InspectionRegister, Booking, MembershipPlan, Membership, Promotion, MaintenanceLog } from "@/lib/supabase";
+import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament, InspectionRegister, Booking, MembershipPlan, Membership, Promotion, MaintenanceLog, BoxingTokenData, BoxingTokenEntry } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
 import { uid, fmtTime, fmtMoney, fmtD } from "@/lib/utils";
 import { printSession } from "@/lib/printReceipt";
@@ -28,6 +28,7 @@ import {
   subscribeToPromotions, loadPromotions,
   subscribeToMaintenanceLogs, loadMaintenanceLogs,
   subscribeToSettings, syncShift, loadShiftData,
+  syncBoxingTokens, loadBoxingTokenData,
 } from "@/lib/db";
 import AuthScreen from "./AuthScreen";
 import RoleSelectScreen from "./RoleSelectScreen";
@@ -48,6 +49,7 @@ import BookingsView from "./BookingsView";
 import MembershipsView from "./MembershipsView";
 import PromotionsView from "./PromotionsView";
 import MaintenanceView from "./MaintenanceView";
+import BoxingTokensView from "./BoxingTokensView";
 import SarSymbol from "./SarSymbol";
 
 export default function CashierSystem() {
@@ -96,6 +98,9 @@ export default function CashierSystem() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [maintenanceLogs, setMaintenanceLogs] = useState<MaintenanceLog[]>([]);
 
+  // ── Boxing token system ──
+  const [boxingTokens, setBoxingTokens] = useState<BoxingTokenData | null>(null);
+
   // ── UI state ──
   const [view, setView] = useState("main");
   const [selItem, setSelItem] = useState<string | null>(null);
@@ -123,7 +128,7 @@ export default function CashierSystem() {
     debts: false, specialGuests: false,
     membershipPlans: false, memberships: false, promotions: false,
     maintenanceLogs: false, bookings: false, customers: false,
-    floors: false, menu: false,
+    floors: false, menu: false, boxingTokens: false,
   });
 
   const t = T[settings.lang];
@@ -180,6 +185,7 @@ export default function CashierSystem() {
     try { const v = localStorage.getItem("als-memberships"); if (v) setMemberships(JSON.parse(v)); } catch {}
     try { const v = localStorage.getItem("als-promotions"); if (v) setPromotions(JSON.parse(v)); } catch {}
     try { const v = localStorage.getItem("als-maintenance-logs"); if (v) setMaintenanceLogs(JSON.parse(v)); } catch {}
+    try { const v = localStorage.getItem("als-boxing-tokens"); if (v) setBoxingTokens(JSON.parse(v)); } catch {}
   }, []);
 
   // ── Load from Supabase when tenant is ready (overrides localStorage) ──
@@ -195,7 +201,7 @@ export default function CashierSystem() {
       const migratedFloors = (hasCounter ? data.floors : [...data.floors, COUNTER_FLOOR]).map((f) => ({
         ...f,
         zones: f.zones.map((z) => {
-          if (z.priceTiers?.length || z.pricingMode === "walkin" || z.pricingMode === "manual" || z.pricingMode === "per-hit") return z;
+          if (z.priceTiers?.length || z.pricingMode === "walkin" || z.pricingMode === "manual" || z.pricingMode === "per-hit" || z.pricingMode === "token") return z;
           // Find matching default zone to copy tiers from
           const defZone = DEFAULT_FLOORS.flatMap((df) => df.zones).find((dz) => dz.id === z.id);
           if (defZone?.priceTiers) return { ...z, priceTiers: defZone.priceTiers, pricingMode: defZone.pricingMode || "tiered" };
@@ -221,6 +227,7 @@ export default function CashierSystem() {
       setSettings(data.settings);
       if (data.logo) setLogo(data.logo);
       setInvoiceCounter(data.invoiceCounter);
+      if (data.boxingTokens) setBoxingTokens(data.boxingTokens);
       // Load shift data from Supabase (overrides localStorage)
       loadShiftData(appCtx.tenant.id).then(({ currentShift: cs, shiftHistory: sh }) => {
         if (cs !== undefined && cs !== null) setCurrentShift(cs as Shift);
@@ -259,6 +266,7 @@ export default function CashierSystem() {
   useEffect(() => { saveLS("als-memberships", memberships); }, [memberships, saveLS]);
   useEffect(() => { saveLS("als-promotions", promotions); }, [promotions, saveLS]);
   useEffect(() => { saveLS("als-maintenance-logs", maintenanceLogs); }, [maintenanceLogs, saveLS]);
+  useEffect(() => { if (boxingTokens) saveLS("als-boxing-tokens", boxingTokens); }, [boxingTokens, saveLS]);
 
   // Supabase background syncs (non-blocking)
   useEffect(() => {
@@ -280,6 +288,13 @@ export default function CashierSystem() {
     syncSettings(tenantId, settings, pins, roleNames).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, pins, roleNames, tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || dbLoading || !boxingTokens) return;
+    if (realtimeSkipRef.current.boxingTokens) { realtimeSkipRef.current.boxingTokens = false; return; }
+    syncBoxingTokens(tenantId, boxingTokens).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boxingTokens, tenantId]);
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
@@ -486,6 +501,13 @@ export default function CashierSystem() {
         if (cs !== undefined) setCurrentShift(cs as Shift | null);
         if (sh) setShiftHistory(sh as ShiftRecord[]);
       }).catch(() => {});
+      // Also reload boxing tokens (stored in same tenant_settings row)
+      loadBoxingTokenData(tenantId).then((bt) => {
+        if (bt) {
+          realtimeSkipRef.current.boxingTokens = true;
+          setBoxingTokens(bt);
+        }
+      }).catch(() => {});
     });
 
     return () => {
@@ -669,7 +691,12 @@ export default function CashierSystem() {
       return { remaining: elapsed, elapsed, progress: -1, timePrice, ordersTotal, total: timePrice + ordersTotal, isOvertime: false, isOpen: true, graceMins: 0 };
     }
 
-    // ── Boxing: per-hit pricing ──
+    // ── Boxing: token mode — no cash charge, 1 token deducted at session end ──
+    if (zone?.pricingMode === "token") {
+      return { remaining: 0, elapsed, progress: 1, timePrice: 0, ordersTotal, total: ordersTotal, isOvertime: false, isOpen: false, graceMins: 0 };
+    }
+
+    // ── Boxing: per-hit pricing (legacy) ──
     if (zone?.pricingMode === "per-hit") {
       const hits = sess.playerCount || 1;
       const timePrice = Math.round(hits * (zone.hitPrice || 7.5) * 10) / 10;
@@ -722,7 +749,7 @@ export default function CashierSystem() {
 
   const startSession = (itemId: string, name: string, dur: number, pc: number, type: "ps" | "match" | "walkin" = "ps", phone?: string) => {
     const info = getInfo(itemId);
-    const isBoxing = info?.zone?.pricingMode === "per-hit";
+    const isBoxing = info?.zone?.pricingMode === "per-hit" || info?.zone?.pricingMode === "token";
     const isWalkin = info?.zone?.pricingMode === "walkin" || type === "walkin";
     const isManual = info?.zone?.pricingMode === "manual";
     const newSess: Session = {
@@ -931,6 +958,23 @@ export default function CashierSystem() {
         }];
       });
     }
+    // ── Boxing token deduction ──
+    if (info?.zone?.pricingMode === "token") {
+      const cur = boxingTokens ?? DEFAULT_BOXING_TOKENS;
+      const newBalance = Math.max(0, cur.balance - 1);
+      const tokenEntry: BoxingTokenEntry = {
+        id: uid(), date: Date.now(), type: "deduct", amount: -1,
+        by: user?.name || user?.role || "",
+        note: isRTL ? `إنهاء جلسة: ${info.name}` : `Session end: ${info.name}`,
+        balanceAfter: newBalance,
+      };
+      const updatedTokens: BoxingTokenData = {
+        balance: newBalance,
+        log: [tokenEntry, ...cur.log].slice(0, 100),
+      };
+      setBoxingTokens(updatedTokens);
+      if (tenantId) syncBoxingTokens(tenantId, updatedTokens).catch(() => {});
+    }
     setSessions((p) => { const n = { ...p }; delete n[itemId]; return n; });
     setOrders((p) => { const n = { ...p }; delete n[itemId]; return n; });
     warnedItemsRef.current.delete(itemId);
@@ -1014,6 +1058,20 @@ export default function CashierSystem() {
     try { localStorage.removeItem("als-user"); } catch {}
     setView("main");
     await signOut();
+  };
+
+  const addBoxingTokens = (amount: number, note?: string) => {
+    setBoxingTokens((prev) => {
+      const cur = prev ?? DEFAULT_BOXING_TOKENS;
+      const newBalance = Math.max(0, cur.balance + amount);
+      const entry: BoxingTokenEntry = {
+        id: uid(), date: Date.now(),
+        type: amount > 0 ? "add" : "deduct",
+        amount, by: user?.name || user?.role || "",
+        note, balanceAfter: newBalance,
+      };
+      return { balance: newBalance, log: [entry, ...cur.log].slice(0, 100) };
+    });
   };
 
   const openShift = (cashFloat: number) => {
@@ -1148,6 +1206,7 @@ export default function CashierSystem() {
   const navItems = [
     { id: "main", icon: "🏠", label: t.home, show: true },
     { id: "shift", icon: "🕐", label: t.shift, show: true },
+    { id: "boxing-tokens", icon: "🥊", label: t.boxingTokens, show: true },
     { id: "qr", icon: "📱", label: t.qr, show: true },
     { id: "history", icon: "📋", label: t.history, show: true },
     { id: "debts", icon: "💰", label: t.debts, show: true },
@@ -1239,6 +1298,34 @@ export default function CashierSystem() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ BOXING TOKEN LOW BALANCE BANNER ═══ */}
+      {boxingTokens !== null && boxingTokens.balance <= (settings.alertThreshold ?? 10) && (
+        <div className="fixed z-[996] anim-fade" style={{ top: alarmItemIds.size > 0 ? 130 : 16, left: "50%", transform: "translateX(-50%)", maxWidth: 500, width: "90%" }}>
+          <div className="card px-4 py-3 flex items-center justify-between gap-3"
+            style={{
+              borderColor: "color-mix(in srgb, var(--yellow) 50%, transparent)",
+              background: "color-mix(in srgb, var(--yellow) 10%, var(--surface))",
+              boxShadow: "0 8px 30px rgba(251,191,36,0.15)",
+            }}>
+            <div>
+              <div className="text-xs font-bold" style={{ color: "var(--yellow)" }}>
+                🥊 {t.lowTokenAlert}
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--text2)" }}>
+                {boxingTokens.balance} {t.tokensRemaining}
+              </div>
+            </div>
+            <button
+              onClick={() => setView("boxing-tokens")}
+              className="btn px-3 py-1.5 text-xs font-semibold shrink-0"
+              style={{ color: "var(--yellow)", borderColor: "color-mix(in srgb, var(--yellow) 30%, transparent)", background: "color-mix(in srgb, var(--yellow) 10%, transparent)" }}
+            >
+              {t.addTokens}
+            </button>
           </div>
         </div>
       )}
@@ -1699,8 +1786,9 @@ export default function CashierSystem() {
         {view === "memberships" && <MembershipsView membershipPlans={membershipPlans} setMembershipPlans={setMembershipPlans} memberships={memberships} setMemberships={setMemberships} customers={customers} isManager={isManager} settings={settings} notify={notify} />}
         {view === "promotions" && <PromotionsView promotions={promotions} setPromotions={setPromotions} isManager={isManager} settings={settings} notify={notify} />}
         {view === "maintenance" && <MaintenanceView maintenanceLogs={maintenanceLogs} setMaintenanceLogs={setMaintenanceLogs} floors={floors} setFloors={setFloors} settings={settings} notify={notify} currentUser={user.name} />}
+        {view === "boxing-tokens" && <BoxingTokensView boxingTokens={boxingTokens} settings={settings} isRTL={isRTL} currentUser={user.name} onAddTokens={addBoxingTokens} />}
         {view === "stats" && <StatsView history={history} debts={debts} sessions={sessions} role={user.role} settings={settings} logo={logo} currentBranchId={appCtx?.branch?.id} currentBranchName={appCtx?.branch?.name} />}
-        {view === "admin" && <AdminView floors={floors} setFloors={setFloors} menu={menu} setMenu={setMenu} pins={pins} setPins={setPins} roleNames={roleNames} setRoleNames={setRoleNames} role={user.role} notify={notify} onClearHistory={() => setHistory([])} onClearDebts={() => setDebts([])} settings={settings} setSettings={setSettings} logo={logo} setLogo={setLogo} tenantId={tenantId ?? ""} />}
+        {view === "admin" && <AdminView floors={floors} setFloors={setFloors} menu={menu} setMenu={setMenu} pins={pins} setPins={setPins} roleNames={roleNames} setRoleNames={setRoleNames} role={user.role} notify={notify} onClearHistory={() => setHistory([])} onClearDebts={() => setDebts([])} settings={settings} setSettings={setSettings} logo={logo} setLogo={setLogo} tenantId={tenantId ?? ""} boxingTokens={boxingTokens} onAddBoxingTokens={addBoxingTokens} />}
       </main>
 
       {/* ═══ MOBILE BOTTOM NAV ═══ */}

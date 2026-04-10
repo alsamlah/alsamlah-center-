@@ -106,7 +106,7 @@ export interface Zone {
   pricePerHour: number;
   minCharge: number;
   priceTiers?: PriceTier[];
-  pricingMode?: "hourly" | "tiered" | "per-hit" | "walkin" | "manual";
+  pricingMode?: "hourly" | "tiered" | "per-hit" | "token" | "walkin" | "manual";
   hitPrice?: number;
   items: { id: string; name: string; sub?: string; status?: ItemStatus; maintenanceNote?: string }[];
 }
@@ -460,4 +460,20 @@ export interface InspectionRegister {
   updatedAt: number
   updatedBy: string
   branchId?: string
+}
+
+// ── Boxing Token System ──
+export interface BoxingTokenEntry {
+  id: string;
+  date: number;
+  type: "deduct" | "add";
+  amount: number;       // negative for deduct, positive for add
+  by: string;           // cashier/manager name
+  note?: string;
+  balanceAfter: number;
+}
+
+export interface BoxingTokenData {
+  balance: number;
+  log: BoxingTokenEntry[];  // capped at 100 entries
 }

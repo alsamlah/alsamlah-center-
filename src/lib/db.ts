@@ -12,6 +12,7 @@ import type {
   Floor, MenuItem, Session, OrderItem,
   HistoryRecord, Debt, Tenant, Branch, SpecialGuest, Customer, Tournament,
   InspectionRegister, Booking, MembershipPlan, Membership, Promotion, MaintenanceLog,
+  BoxingTokenData,
 } from "@/lib/supabase";
 import { getBusinessDay } from "@/lib/utils";
 import { DEFAULT_FLOORS, DEFAULT_MENU, DEFAULT_PINS, DEFAULT_ROLE_NAMES } from "@/lib/defaults";
@@ -41,6 +42,7 @@ export interface TenantData {
   settings: SystemSettings;
   logo: string | null;
   invoiceCounter: number;
+  boxingTokens: BoxingTokenData | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -193,6 +195,11 @@ export async function loadTenantData(
   const counterRow = counterRes.status === "fulfilled" ? counterRes.value.data : null;
   const invoiceCounter: number = counterRow?.counter ?? parse(ls("als-invoice-counter"), "1") as unknown as number;
 
+  // ── Boxing Tokens (stored in tenant_settings.boxing_tokens) ──
+  const boxingTokens: BoxingTokenData | null = settingsRow?.boxing_tokens
+    ? settingsRow.boxing_tokens as BoxingTokenData
+    : parse(ls("als-boxing-tokens"), null);
+
   // Sync loaded data back to localStorage
   lsSet("als-floors", floors);
   lsSet("als-menu", menu);
@@ -212,8 +219,9 @@ export async function loadTenantData(
   lsSet("als-role-names", roleNames);
   lsSet("als-settings", settings);
   lsSet("als-invoice-counter", String(invoiceCounter));
+  if (boxingTokens) lsSet("als-boxing-tokens", boxingTokens);
 
-  return { floors, menu, sessions, orders, history, debts, customers, tournaments, registers, bookings, membershipPlans, memberships, promotions, maintenanceLogs, pins, roleNames, settings, logo, invoiceCounter };
+  return { floors, menu, sessions, orders, history, debts, customers, tournaments, registers, bookings, membershipPlans, memberships, promotions, maintenanceLogs, pins, roleNames, settings, logo, invoiceCounter, boxingTokens };
 }
 
 // ── Tenant & Business Profile ─────────────────────────────────────────────────
@@ -718,6 +726,35 @@ export async function loadShiftData(tenantId: string): Promise<{ currentShift: u
   } catch {
     return { currentShift: null, shiftHistory: [] };
   }
+}
+
+// ── Boxing Tokens ─────────────────────────────────────────────────────────────
+
+export async function loadBoxingTokenData(tenantId: string): Promise<BoxingTokenData | null> {
+  try {
+    const { data } = await supabase
+      .from("tenant_settings")
+      .select("boxing_tokens")
+      .eq("tenant_id", tenantId)
+      .limit(1)
+      .single();
+    if (data?.boxing_tokens) {
+      lsSet("als-boxing-tokens", data.boxing_tokens);
+      return data.boxing_tokens as BoxingTokenData;
+    }
+    return parse(ls("als-boxing-tokens"), null);
+  } catch {
+    return parse(ls("als-boxing-tokens"), null);
+  }
+}
+
+export async function syncBoxingTokens(tenantId: string, bt: BoxingTokenData): Promise<void> {
+  lsSet("als-boxing-tokens", bt);
+  try {
+    await supabase.from("tenant_settings")
+      .update({ boxing_tokens: bt, updated_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId);
+  } catch { /* column may not exist yet — run migration first */ }
 }
 
 // ── Bookings ─────────────────────────────────────────────────────────────────

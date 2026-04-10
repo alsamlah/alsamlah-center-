@@ -60,6 +60,8 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
   const activeCat = menuCat || menuCats[0] || "";
 
   const isPerHit = info.zone.pricingMode === "per-hit";
+  const isToken = info.zone.pricingMode === "token";
+  const isBoxing = isPerHit || isToken;
   const isWalkin = info.zone.pricingMode === "walkin";
   const isManual = info.zone.pricingMode === "manual";
   const zoneTiers = info.zone.priceTiers ?? [];
@@ -232,8 +234,8 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
             </>
           )}
 
-          {/* Duration picker — only for PS sessions, hidden for per-hit */}
-          {sessionType === "ps" && !isPerHit && (
+          {/* Duration picker — only for PS sessions, hidden for boxing (per-hit or token) */}
+          {sessionType === "ps" && !isBoxing && (
             <div className="mb-4">
               <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>{t.duration}</label>
               <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(availableDurations.length, 5)}, 1fr)` }}>
@@ -265,7 +267,15 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
             </div>
           )}
 
-          {/* People count — hidden for boxing (uses hit count instead) */}
+          {/* Token mode info badge */}
+          {isToken && (
+            <div className="mb-4 px-3 py-2.5 rounded-xl text-xs font-medium"
+              style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", color: "var(--text2)", border: "1px dashed color-mix(in srgb, var(--accent) 25%, transparent)" }}>
+              🥊 {isRTL ? "سيُخصم رمز واحد عند إنهاء الجلسة" : "1 token will be deducted when this session ends"}
+            </div>
+          )}
+
+          {/* People count — hidden for per-hit boxing only (token mode shows normal player count) */}
           {!isPerHit && (
             <div className="mb-5">
               <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>
@@ -287,10 +297,10 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
             </div>
           )}
           <button
-            onClick={() => onStartSession(itemId, custName, isPerHit ? 0 : selDur, selPc, isRoomsZone ? sessionType : "ps", custPhone || undefined)}
+            onClick={() => onStartSession(itemId, custName, isBoxing ? 0 : selDur, selPc, isRoomsZone ? sessionType : "ps", custPhone || undefined)}
             className="btn btn-primary w-full py-3.5 text-sm"
             style={sessionType === "match" ? { background: "var(--green)", borderColor: "var(--green)" } : {}}>
-            {isPerHit ? "🥊" : sessionType === "match" ? "⚽" : "▶"} {t.start}
+            {isBoxing ? "🥊" : sessionType === "match" ? "⚽" : "▶"} {t.start}
           </button>
           </>)}
         </div>
@@ -304,13 +314,14 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
               <div>
                 {isWalkin && <div className="text-xs font-bold mb-1" style={{ color: "var(--green)" }}>☕ {t.walkinSession}</div>}
                 {isManual && <div className="text-xs font-bold mb-1" style={{ color: "var(--yellow)" }}>💆 {t.massageSession}</div>}
+                {isToken && <div className="text-xs font-bold mb-1" style={{ color: "var(--accent)" }}>🥊 {t.tokenMode}</div>}
                 {session.sessionType === "match" && (
                   <div className="text-xs font-bold mb-1" style={{ color: "var(--green)" }}>⚽ {t.matchSession}</div>
                 )}
                 <div className="text-sm font-medium" style={{ color: "var(--text2)" }}>{session.customerName}</div>
                 <div className="text-xs" style={{ color: "var(--text2)", opacity: 0.5 }}>{fmtTime(session.startTime)}</div>
               </div>
-              {!isWalkin && !isManual && (
+              {!isWalkin && !isManual && !isToken && (
                 <div className="text-right">
                   <div className="text-4xl md:text-5xl font-bold font-mono tabular-nums"
                     style={{ color: calc?.isOvertime ? "var(--red)" : session.sessionType === "match" ? "var(--green)" : "var(--accent)", letterSpacing: "0.05em" }}>
@@ -318,6 +329,12 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
                   </div>
                   {calc?.isOvertime && <div className="text-xs font-semibold mt-1" style={{ color: "var(--red)" }}>⚠ {t.overtime}</div>}
                   {calc?.isOpen && session.sessionType !== "match" && <div className="text-xs mt-1" style={{ color: "var(--yellow)" }}>{t.open}</div>}
+                </div>
+              )}
+              {isToken && (
+                <div className="text-right">
+                  <div className="text-xs font-bold" style={{ color: "var(--accent)", opacity: 0.7 }}>🥊 1 {isRTL ? "عملة" : "token"}</div>
+                  <div className="text-sm mt-1" style={{ color: "var(--text2)", opacity: 0.4 }}>⏱ {fmtD(calc?.elapsed || 0)}</div>
                 </div>
               )}
               {isWalkin && (

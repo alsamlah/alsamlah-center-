@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Floor, Zone, MenuItem, UserRole } from "@/lib/supabase";
+import type { Floor, Zone, MenuItem, UserRole, BoxingTokenData } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
 import { FONTS, FONT_SIZES, T } from "@/lib/settings";
 import { MENU_ICONS, ROLE_LABELS, COUNTER_FLOOR_ID } from "@/lib/defaults";
@@ -27,9 +27,11 @@ interface Props {
   logo: string | null;
   setLogo: (logo: string | null) => void;
   tenantId: string;
+  boxingTokens?: BoxingTokenData | null;
+  onAddBoxingTokens?: (amount: number, note?: string) => void;
 }
 
-export default function AdminView({ floors, setFloors, menu, setMenu, pins, setPins, roleNames, setRoleNames, role, notify, onClearHistory, onClearDebts, settings, setSettings, logo, setLogo, tenantId }: Props) {
+export default function AdminView({ floors, setFloors, menu, setMenu, pins, setPins, roleNames, setRoleNames, role, notify, onClearHistory, onClearDebts, settings, setSettings, logo, setLogo, tenantId, boxingTokens, onAddBoxingTokens }: Props) {
   const [tab, setTab] = useState("prices");
   const [editItem, setEditItem] = useState<{ id: string; name: string; cat: string; icon: string; price: string; trackStock?: boolean; stock?: number; lowStockThreshold?: number } | null>(null);
   const [editIconPicker, setEditIconPicker] = useState(false);
@@ -77,13 +79,15 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
     { id: "qr", label: "📱 " + (isRTL ? "رموز QR" : "QR Codes") },
     { id: "pins", label: "🔑 " + t.pins },
     { id: "settings", label: "🎨 " + t.settings },
+    { id: "boxing", label: "🥊 " + t.boxingTokens },
     { id: "danger", label: "⚠️ " + t.danger },
   ];
 
   const ZONE_ICONS_LIST = ["🎮", "🎱", "♟️", "🃏", "🥊", "🏓", "🛋️", "☕", "💆", "🎯", "🎳", "🎲", "⚽", "🏀", "🎿", "🚗", "🎸", "🎤", "🏋️", "🎬", "🪀", "🎠", "🎡", "🎢", "🀄", "🎭", "🎨", "🎪", "🎰", "🏊", "🧩", "🎻"];
   const PRICING_MODES = [
     { id: "hourly",  label: isRTL ? "بالساعة"       : "Hourly"   },
-    { id: "per-hit", label: isRTL ? "بالضربة"       : "Per Hit"  },
+    { id: "token",   label: isRTL ? "نظام العملات"  : "Token Mode" },
+    { id: "per-hit", label: isRTL ? "بالضربة (قديم)" : "Per Hit (legacy)" },
     { id: "manual",  label: isRTL ? "يدوي"          : "Manual"   },
     { id: "walkin",  label: isRTL ? "طلبات مباشرة"  : "Walk-in"  },
   ];
@@ -115,6 +119,7 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
             <div key={z.id} className="card p-4 mb-2">
               <div className="flex items-center gap-2 mb-3"><span className="text-lg">{z.icon}</span><span className="text-sm font-bold" style={{ color: "var(--text)" }}>{z.name}</span>
                 {z.pricingMode === "per-hit" && <span className="badge text-xs" style={{ background: "color-mix(in srgb, var(--yellow) 15%, transparent)", color: "var(--yellow)" }}>🥊 {t.perHit}</span>}
+                {z.pricingMode === "token" && <span className="badge text-xs" style={{ background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)" }}>🥊 {t.tokenMode}</span>}
                 {z.pricingMode === "manual" && <span className="badge text-xs" style={{ background: "color-mix(in srgb, var(--blue) 15%, transparent)", color: "var(--blue)" }}>💆 {isRTL ? "يدوي" : "Manual"}</span>}
                 {z.pricingMode === "walkin" && <span className="badge text-xs" style={{ background: "color-mix(in srgb, var(--green) 15%, transparent)", color: "var(--green)" }}>☕ {isRTL ? "طلبات مباشرة" : "Walk-in"}</span>}
               </div>
@@ -125,6 +130,11 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
               ) : z.pricingMode === "walkin" ? (
                 <div className="text-xs py-2 px-3 rounded-lg" style={{ background: "color-mix(in srgb, var(--green) 8%, transparent)", color: "var(--text2)", border: "1px dashed color-mix(in srgb, var(--green) 25%, transparent)" }}>
                   {isRTL ? "طلبات مباشرة — بدون رسوم وقت، فقط المنيو" : "Walk-in orders — no time charge, menu only"}
+                </div>
+              ) : z.pricingMode === "token" ? (
+                <div className="text-xs py-2.5 px-3 rounded-xl"
+                  style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", color: "var(--text2)", border: "1px dashed color-mix(in srgb, var(--accent) 25%, transparent)" }}>
+                  🥊 {isRTL ? `نظام العملات — يُخصم رمز واحد لكل جلسة | الرصيد الحالي: ${boxingTokens?.balance ?? 0}` : `Token mode — 1 token deducted per session | Balance: ${boxingTokens?.balance ?? 0}`}
                 </div>
               ) : z.pricingMode === "per-hit" ? (
                 <div className="flex gap-3">
@@ -866,6 +876,57 @@ export default function AdminView({ floors, setFloors, menu, setMenu, pins, setP
       {/* ── Business Profile ── */}
       {tab === "business" && (
         <BusinessProfile settings={settings} logo={logo} setLogo={setLogo} />
+      )}
+
+      {/* ── Boxing Tokens ── */}
+      {tab === "boxing" && (
+        <div>
+          <div className="text-sm font-bold mb-5">🥊 {t.boxingTokens}</div>
+
+          {/* Current balance */}
+          <div className="card p-5 mb-4 text-center">
+            <div className="text-5xl font-black mb-1"
+              style={{ color: (boxingTokens?.balance ?? 0) <= (settings.alertThreshold ?? 10) ? "var(--yellow)" : "var(--accent)" }}>
+              {boxingTokens?.balance ?? 0}
+            </div>
+            <div className="text-xs" style={{ color: "var(--text2)" }}>{t.tokensRemaining}</div>
+            {(boxingTokens?.balance ?? 0) <= (settings.alertThreshold ?? 10) && (
+              <div className="mt-2 text-xs font-semibold" style={{ color: "var(--yellow)" }}>⚠️ {t.lowTokenAlert}</div>
+            )}
+          </div>
+
+          {/* Add tokens */}
+          {onAddBoxingTokens && (
+            <div className="card p-4 mb-4">
+              <div className="text-xs font-bold mb-3">{t.addTokens}</div>
+              {[10, 20, 50, 100].map((n) => (
+                <button key={n} onClick={() => { onAddBoxingTokens(n); notify(t.tokenAdded + " ✓"); }}
+                  className="btn btn-primary me-2 mb-2 px-4 py-2 text-sm">
+                  +{n}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Token settings */}
+          <div className="card p-4 mb-4">
+            <div className="text-xs font-bold mb-3">{t.settings}</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.monthlyTokens}</label>
+                <input type="number" min={1} value={settings.monthlyTokens ?? 50}
+                  onChange={(e) => setSettings({ ...settings, monthlyTokens: Math.max(1, Number(e.target.value)) })}
+                  className="input" />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text2)" }}>{t.alertThreshold}</label>
+                <input type="number" min={0} value={settings.alertThreshold ?? 10}
+                  onChange={(e) => setSettings({ ...settings, alertThreshold: Math.max(0, Number(e.target.value)) })}
+                  className="input" />
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Danger Zone ── */}
