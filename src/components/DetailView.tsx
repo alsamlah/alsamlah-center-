@@ -267,16 +267,35 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
             </div>
           )}
 
-          {/* Token mode info badge */}
+          {/* Token mode: token count selector + price preview */}
           {isToken && (
-            <div className="mb-4 px-3 py-2.5 rounded-xl text-xs font-medium"
-              style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", color: "var(--text2)", border: "1px dashed color-mix(in srgb, var(--accent) 25%, transparent)" }}>
-              🥊 {isRTL ? "سيُخصم رمز واحد عند إنهاء الجلسة" : "1 token will be deducted when this session ends"}
+            <div className="mb-4">
+              <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>
+                🥊 {isRTL ? "عدد العملات" : "Token Count"} ({info.zone.hitPrice ?? 7.5} ﷼/{isRTL ? "عملة" : "token"})
+              </label>
+              <div className="flex gap-2 flex-wrap mb-2">
+                {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                  <button key={n} onClick={() => setSelPc(n)}
+                    className="btn w-11 h-11 text-sm font-bold"
+                    style={{
+                      background: selPc === n ? "color-mix(in srgb, var(--accent) 15%, transparent)" : "var(--input-bg)",
+                      color: selPc === n ? "var(--accent)" : "var(--text2)",
+                      borderColor: selPc === n ? "color-mix(in srgb, var(--accent) 35%, transparent)" : "var(--border)",
+                    }}>
+                    {n}
+                  </button>
+                ))}
+                <input type="number" min={1} value={selPc} onChange={(e) => setSelPc(Math.max(1, Number(e.target.value)))}
+                  className="input w-16 text-center text-sm" dir="ltr" />
+              </div>
+              <div className="text-sm font-bold px-1" style={{ color: "var(--accent)" }}>
+                {selPc} × {info.zone.hitPrice ?? 7.5} ﷼ = {fmtMoney(selPc * (info.zone.hitPrice ?? 7.5))} ﷼
+              </div>
             </div>
           )}
 
-          {/* People count — hidden for per-hit boxing only (token mode shows normal player count) */}
-          {!isPerHit && (
+          {/* People count — hidden for boxing (per-hit & token handle their own count) */}
+          {!isPerHit && !isToken && (
             <div className="mb-5">
               <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text2)" }}>
                 {isRoomsZone ? t.numPeople : t.players}
@@ -333,8 +352,13 @@ export default function DetailView({ itemId, info, session, orders, menu, calc, 
               )}
               {isToken && (
                 <div className="text-right">
-                  <div className="text-xs font-bold" style={{ color: "var(--accent)", opacity: 0.7 }}>🥊 1 {isRTL ? "عملة" : "token"}</div>
-                  <div className="text-sm mt-1" style={{ color: "var(--text2)", opacity: 0.4 }}>⏱ {fmtD(calc?.elapsed || 0)}</div>
+                  <div className="text-2xl font-bold" style={{ color: "var(--accent)" }}>
+                    {fmtMoney(calc?.timePrice ?? 0)} <SarSymbol size={16} />
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--text2)", opacity: 0.7 }}>
+                    🥊 {session.playerCount ?? 1} {isRTL ? "عملة" : "token"}
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--text2)", opacity: 0.4 }}>⏱ {fmtD(calc?.elapsed || 0)}</div>
                 </div>
               )}
               {isWalkin && (

@@ -691,9 +691,12 @@ export default function CashierSystem() {
       return { remaining: elapsed, elapsed, progress: -1, timePrice, ordersTotal, total: timePrice + ordersTotal, isOvertime: false, isOpen: true, graceMins: 0 };
     }
 
-    // ── Boxing: token mode — no cash charge, 1 token deducted at session end ──
+    // ── Boxing: token mode — tokenCount × tokenPrice, deduct tokens at session end ──
     if (zone?.pricingMode === "token") {
-      return { remaining: 0, elapsed, progress: 1, timePrice: 0, ordersTotal, total: ordersTotal, isOvertime: false, isOpen: false, graceMins: 0 };
+      const tokenCount = sess.playerCount ?? 1;
+      const tokenPrice = zone.hitPrice ?? 7.5;
+      const timePrice = tokenCount * tokenPrice;
+      return { remaining: 0, elapsed, progress: 1, timePrice, ordersTotal, total: timePrice + ordersTotal, isOvertime: false, isOpen: false, graceMins: 0 };
     }
 
     // ── Boxing: per-hit pricing (legacy) ──
@@ -958,14 +961,15 @@ export default function CashierSystem() {
         }];
       });
     }
-    // ── Boxing token deduction ──
+    // ── Boxing token deduction — deduct tokenCount (playerCount) tokens ──
     if (info?.zone?.pricingMode === "token") {
+      const tokenCount = sess.playerCount ?? 1;
       const cur = boxingTokens ?? DEFAULT_BOXING_TOKENS;
-      const newBalance = Math.max(0, cur.balance - 1);
+      const newBalance = Math.max(0, cur.balance - tokenCount);
       const tokenEntry: BoxingTokenEntry = {
-        id: uid(), date: Date.now(), type: "deduct", amount: -1,
+        id: uid(), date: Date.now(), type: "deduct", amount: -tokenCount,
         by: user?.name || user?.role || "",
-        note: isRTL ? `إنهاء جلسة: ${info.name}` : `Session end: ${info.name}`,
+        note: isRTL ? `إنهاء جلسة: ${info.name} (${tokenCount} عملة)` : `Session end: ${info.name} (${tokenCount} token${tokenCount > 1 ? "s" : ""})`,
         balanceAfter: newBalance,
       };
       const updatedTokens: BoxingTokenData = {

@@ -50,7 +50,7 @@ export const DEFAULT_FLOORS: Floor[] = [
       { id: "billiard1", name: "بلياردو", icon: "🎱", pricePerHour: 25, minCharge: 30, priceTiers: TENNIS_BILLIARD_TIERS, pricingMode: "tiered", items: Array.from({ length: 3 }, (_, i) => ({ id: `bill1-${i + 1}`, name: `بلياردو ${i + 1}` })) },
       { id: "chess", name: "شطرنج", icon: "♟️", pricePerHour: 20, minCharge: 30, priceTiers: CHESS_TIERS, pricingMode: "tiered", items: Array.from({ length: 2 }, (_, i) => ({ id: `chess-${i + 1}`, name: `شطرنج ${i + 1}` })) },
       { id: "baloot1", name: "بلوت", icon: "🃏", pricePerHour: 20, minCharge: 30, priceTiers: BALOOT_TIERS, pricingMode: "tiered", items: [{ id: "baloot1-1", name: "بلوت 1" }] },
-      { id: "boxing", name: "بوكسينج", icon: "🥊", pricePerHour: 0, minCharge: 0, pricingMode: "token", items: [{ id: "boxing-1", name: "بوكسينج" }] },
+      { id: "boxing", name: "بوكسينج", icon: "🥊", pricePerHour: 0, minCharge: 0, pricingMode: "token", hitPrice: 7.5, items: [{ id: "boxing-1", name: "بوكسينج" }] },
       { id: MASSAGE_ZONE_ID, name: "مساج", icon: "💆", pricePerHour: 0, minCharge: 0, pricingMode: "manual", items: [{ id: "massage-1", name: "كرسي مساج 1" }, { id: "massage-2", name: "كرسي مساج 2" }] },
     ],
   },
