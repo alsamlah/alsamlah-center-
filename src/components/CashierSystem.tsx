@@ -201,7 +201,7 @@ export default function CashierSystem() {
       // Always ensure counter floor is present (virtual floor, not stored in DB)
       const hasCounter = data.floors.some((f) => f.id === COUNTER_FLOOR_ID);
       // Migrate: add priceTiers from defaults if missing (zones that should have tiered pricing)
-      const migratedFloors = (hasCounter ? data.floors : [...data.floors, COUNTER_FLOOR]).map((f) => ({
+      const tiersMigrated = (hasCounter ? data.floors : [...data.floors, COUNTER_FLOOR]).map((f) => ({
         ...f,
         zones: f.zones.map((z) => {
           if (z.priceTiers?.length || z.pricingMode === "walkin" || z.pricingMode === "manual" || z.pricingMode === "per-hit" || z.pricingMode === "token") return z;
@@ -211,6 +211,65 @@ export default function CashierSystem() {
           return z;
         }),
       }));
+
+      // ── Migration: merge floor 2 into floor 1 (single-floor layout) ──
+      // Renumbers items per owner's request:
+      //   bill2-1 → "بلياردو 4", bill2-2 → "بلياردو 5"
+      //   baloot2-1 → "بلوت 3",  baloot2-2 → "بلوت 4"
+      //   floor-1 → "غرفة 11",  floor-2 → "غرفة 12"  (moved into rooms zone)
+      //   tennis zone → copied as-is to floor 1
+      // IDs are preserved so active sessions + history stay intact.
+      type ZoneItem = Floor["zones"][number]["items"][number];
+      const renameLegacyItem = (item: ZoneItem): ZoneItem => {
+        switch (item.id) {
+          case "bill2-1": return { ...item, name: "بلياردو 4" };
+          case "bill2-2": return { ...item, name: "بلياردو 5" };
+          case "baloot2-1": return { ...item, name: "بلوت 3" };
+          case "baloot2-2": return { ...item, name: "بلوت 4" };
+          case "floor-1": return { ...item, name: "غرفة 11", sub: "PS5 + TV" };
+          case "floor-2": return { ...item, name: "غرفة 12", sub: "PS5 + TV" };
+          default: return item;
+        }
+      };
+      const f2 = tiersMigrated.find((f) => f.id === "f2");
+      let migratedFloors = tiersMigrated;
+      if (f2) {
+        const f1 = tiersMigrated.find((f) => f.id === "f1");
+        if (f1) {
+          const billiard2 = f2.zones.find((z) => z.id === "billiard2");
+          const baloot2 = f2.zones.find((z) => z.id === "baloot2");
+          const floorZone = f2.zones.find((z) => z.id === "floor");
+          const tennisZone = f2.zones.find((z) => z.id === "tennis");
+
+          const mergedF1Zones = f1.zones.map((z) => {
+            if (z.id === "billiard1" && billiard2) {
+              const existing = new Set(z.items.map((i) => i.id));
+              const newItems = billiard2.items.map(renameLegacyItem).filter((i) => !existing.has(i.id));
+              return { ...z, items: [...z.items, ...newItems] };
+            }
+            if (z.id === "baloot1" && baloot2) {
+              const existing = new Set(z.items.map((i) => i.id));
+              const newItems = baloot2.items.map(renameLegacyItem).filter((i) => !existing.has(i.id));
+              return { ...z, items: [...z.items, ...newItems] };
+            }
+            if (z.id === "rooms" && floorZone) {
+              const existing = new Set(z.items.map((i) => i.id));
+              const newItems = floorZone.items.map(renameLegacyItem).filter((i) => !existing.has(i.id));
+              return { ...z, items: [...z.items, ...newItems] };
+            }
+            return z;
+          });
+
+          // Append tennis zone if not already on floor 1
+          const f1HasTennis = mergedF1Zones.some((z) => z.id === "tennis");
+          const finalF1Zones = f1HasTennis || !tennisZone ? mergedF1Zones : [...mergedF1Zones, tennisZone];
+
+          const updatedF1 = { ...f1, name: "الصالة", zones: finalF1Zones };
+          migratedFloors = tiersMigrated
+            .filter((f) => f.id !== "f2")
+            .map((f) => (f.id === "f1" ? updatedF1 : f));
+        }
+      }
       setFloors(migratedFloors);
       setMenu(data.menu);
       // Merge: prev wins for sessions created during the DB loading window (not yet in Supabase).
@@ -1603,9 +1662,9 @@ export default function CashierSystem() {
               );
             })()}
 
-            {/* Floor Tabs + Scan button */}
+            {/* Floor Tabs + Scan button — tabs hidden when only one non-counter floor exists */}
             <div className="flex gap-2 mb-6 items-center flex-wrap">
-              {floors.filter((f) => f.id !== COUNTER_FLOOR_ID).map((f) => (
+              {floors.filter((f) => f.id !== COUNTER_FLOOR_ID).length > 1 && floors.filter((f) => f.id !== COUNTER_FLOOR_ID).map((f) => (
                 <button key={f.id} onClick={() => setSelFloor(f.id)}
                   className="btn px-5 py-2.5 text-sm"
                   style={{
