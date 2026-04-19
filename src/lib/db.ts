@@ -61,6 +61,19 @@ function parse<T>(raw: string | null, fallback: T): T {
   try { return JSON.parse(raw) as T; } catch { return fallback; }
 }
 
+/**
+ * Merge localStorage items with Supabase items by id.
+ * Supabase wins on conflict (source of truth), but any LS-only item is preserved.
+ * This prevents the catastrophic "exclusive OR" bug where a record that failed
+ * to sync to Supabase would be silently discarded on the next load.
+ */
+function mergeById<T extends { id: string }>(lsItems: T[], supaItems: T[]): T[] {
+  const byId = new Map<string, T>();
+  for (const it of lsItems) byId.set(it.id, it);
+  for (const it of supaItems) byId.set(it.id, it); // Supabase overrides
+  return Array.from(byId.values());
+}
+
 // ── Load all tenant data (Supabase first, localStorage fallback) ──────────────
 
 export async function loadTenantData(
@@ -124,16 +137,18 @@ export async function loadTenantData(
   }
 
   // ── History ──
+  // Merge LS + Supabase: records that failed to sync survive. Supabase wins on conflict.
   const historyRows = historyRes.status === "fulfilled" ? historyRes.value.data ?? [] : [];
-  const history: HistoryRecord[] = historyRows.length > 0
-    ? historyRows.map((r) => r.data as HistoryRecord)
-    : parse(ls("als-history"), []);
+  const historySupa = historyRows.map((r) => r.data as HistoryRecord);
+  const historyLS = parse<HistoryRecord[]>(ls("als-history"), []);
+  const history: HistoryRecord[] = mergeById(historyLS, historySupa)
+    .sort((a, b) => (b.endTime || 0) - (a.endTime || 0)); // newest first
 
   // ── Debts ──
   const debtsRows = debtsRes.status === "fulfilled" ? debtsRes.value.data ?? [] : [];
-  const debts: Debt[] = debtsRows.length > 0
-    ? debtsRows.map((r) => r.data as Debt)
-    : parse(ls("als-debts"), []);
+  const debtsSupa = debtsRows.map((r) => r.data as Debt);
+  const debtsLS = parse<Debt[]>(ls("als-debts"), []);
+  const debts: Debt[] = mergeById(debtsLS, debtsSupa);
 
   // ── Settings, pins, role names ──
   const settingsRow = settingsRes.status === "fulfilled" ? settingsRes.value.data : null;
@@ -151,21 +166,25 @@ export async function loadTenantData(
 
   // ── Tournaments ──
   const tournamentsRows = tournamentsRes.status === "fulfilled" ? tournamentsRes.value.data ?? [] : [];
-  const tournaments: Tournament[] = tournamentsRows.length > 0
-    ? tournamentsRows.map((r) => r.data as Tournament)
-    : parse(ls("als-tournaments"), []);
+  const tournamentsSupa = tournamentsRows.map((r) => r.data as Tournament);
+  const tournamentsLS = parse<Tournament[]>(ls("als-tournaments"), []);
+  const tournaments: Tournament[] = mergeById(tournamentsLS, tournamentsSupa);
 
   // ── Inspection Registers ──
+  // NOTE: registers use `type` as primary key (not `id`), so merge by type instead.
   const registersRows = registersRes.status === "fulfilled" ? registersRes.value.data ?? [] : [];
-  const registers: InspectionRegister[] = registersRows.length > 0
-    ? registersRows.map((r) => r.data as InspectionRegister)
-    : parse(ls("als-registers"), []);
+  const registersSupa: InspectionRegister[] = registersRows.map((r) => r.data as InspectionRegister);
+  const registersLS = parse<InspectionRegister[]>(ls("als-registers"), []);
+  const registersMap = new Map<string, InspectionRegister>();
+  for (const r of registersLS) registersMap.set(r.type, r);
+  for (const r of registersSupa) registersMap.set(r.type, r); // Supabase wins
+  const registers: InspectionRegister[] = Array.from(registersMap.values());
 
   // ── Bookings ──
   const bookingsRows = bookingsRes.status === "fulfilled" ? bookingsRes.value.data ?? [] : [];
-  const bookings: Booking[] = bookingsRows.length > 0
-    ? bookingsRows.map((r) => r.data as Booking)
-    : parse(ls("als-bookings"), []);
+  const bookingsSupa = bookingsRows.map((r) => r.data as Booking);
+  const bookingsLS = parse<Booking[]>(ls("als-bookings"), []);
+  const bookings: Booking[] = mergeById(bookingsLS, bookingsSupa);
 
   // ── Membership Plans ──
   const membershipPlansRow = membershipPlansRes.status === "fulfilled" ? membershipPlansRes.value.data : null;
@@ -173,9 +192,9 @@ export async function loadTenantData(
 
   // ── Memberships ──
   const membershipsRows = membershipsRes.status === "fulfilled" ? membershipsRes.value.data ?? [] : [];
-  const memberships: Membership[] = membershipsRows.length > 0
-    ? membershipsRows.map((r) => r.data as Membership)
-    : parse(ls("als-memberships"), []);
+  const membershipsSupa = membershipsRows.map((r) => r.data as Membership);
+  const membershipsLS = parse<Membership[]>(ls("als-memberships"), []);
+  const memberships: Membership[] = mergeById(membershipsLS, membershipsSupa);
 
   // ── Promotions ──
   const promotionsRow = promotionsRes.status === "fulfilled" ? promotionsRes.value.data : null;
@@ -183,9 +202,9 @@ export async function loadTenantData(
 
   // ── Maintenance Logs ──
   const maintenanceLogsRows = maintenanceLogsRes.status === "fulfilled" ? maintenanceLogsRes.value.data ?? [] : [];
-  const maintenanceLogs: MaintenanceLog[] = maintenanceLogsRows.length > 0
-    ? maintenanceLogsRows.map((r) => r.data as MaintenanceLog)
-    : parse(ls("als-maintenance-logs"), []);
+  const maintenanceLogsSupa = maintenanceLogsRows.map((r) => r.data as MaintenanceLog);
+  const maintenanceLogsLS = parse<MaintenanceLog[]>(ls("als-maintenance-logs"), []);
+  const maintenanceLogs: MaintenanceLog[] = mergeById(maintenanceLogsLS, maintenanceLogsSupa);
 
   // ── Logo (still stored in tenant row, base64 from localStorage or tenant.logo_url) ──
   const logo: string | null = ls("als-logo");

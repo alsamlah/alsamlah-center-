@@ -306,10 +306,19 @@ export default function CashierSystem() {
       if (data.logo) setLogo(data.logo);
       setInvoiceCounter(data.invoiceCounter);
       if (data.boxingTokens) setBoxingTokens(data.boxingTokens);
-      // Load shift data from Supabase (overrides localStorage)
+      // Load shift data from Supabase and merge with localStorage.
+      // Supabase wins on conflict, but unsynced shift records (network failure) survive.
       loadShiftData(appCtx.tenant.id).then(({ currentShift: cs, shiftHistory: sh }) => {
         if (cs !== undefined && cs !== null) setCurrentShift(cs as Shift);
-        if (sh && Array.isArray(sh) && sh.length > 0) setShiftHistory(sh as ShiftRecord[]);
+        const supaShifts = (sh && Array.isArray(sh) ? sh : []) as ShiftRecord[];
+        if (supaShifts.length > 0) {
+          setShiftHistory((prevLS) => {
+            const byId = new Map<string, ShiftRecord>();
+            for (const s of prevLS) if (s.id) byId.set(s.id, s);
+            for (const s of supaShifts) if (s.id) byId.set(s.id, s); // Supabase wins
+            return Array.from(byId.values()).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
+          });
+        }
       }).catch(() => {});
       setDbLoading(false);
     }).catch((err) => {
