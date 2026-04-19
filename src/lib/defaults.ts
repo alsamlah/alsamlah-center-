@@ -102,9 +102,9 @@ export const DEFAULT_FLOORS: Floor[] = [
         pricingMode: "tiered",
         items: [
           { id: "baloot1-1", name: "بلوت 1" },
-          // Former floor 2 baloot tables, renumbered 3 and 4
-          { id: "baloot2-1", name: "بلوت 3" },
-          { id: "baloot2-2", name: "بلوت 4" },
+          // Former floor 2 baloot tables, renumbered 2 and 3 (sequential)
+          { id: "baloot2-1", name: "بلوت 2" },
+          { id: "baloot2-2", name: "بلوت 3" },
         ],
       },
       {

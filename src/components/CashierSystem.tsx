@@ -215,7 +215,7 @@ export default function CashierSystem() {
       // ── Migration: merge floor 2 into floor 1 (single-floor layout) ──
       // Renumbers items per owner's request:
       //   bill2-1 → "بلياردو 4", bill2-2 → "بلياردو 5"
-      //   baloot2-1 → "بلوت 3",  baloot2-2 → "بلوت 4"
+      //   baloot2-1 → "بلوت 2",  baloot2-2 → "بلوت 3"   (sequential 1-2-3)
       //   floor-1 → "غرفة 11",  floor-2 → "غرفة 12"  (moved into rooms zone)
       //   tennis zone → copied as-is to floor 1
       // IDs are preserved so active sessions + history stay intact.
@@ -224,8 +224,8 @@ export default function CashierSystem() {
         switch (item.id) {
           case "bill2-1": return { ...item, name: "بلياردو 4" };
           case "bill2-2": return { ...item, name: "بلياردو 5" };
-          case "baloot2-1": return { ...item, name: "بلوت 3" };
-          case "baloot2-2": return { ...item, name: "بلوت 4" };
+          case "baloot2-1": return { ...item, name: "بلوت 2" };
+          case "baloot2-2": return { ...item, name: "بلوت 3" };
           case "floor-1": return { ...item, name: "غرفة 11", sub: "PS5 + TV" };
           case "floor-2": return { ...item, name: "غرفة 12", sub: "PS5 + TV" };
           default: return item;
@@ -270,6 +270,20 @@ export default function CashierSystem() {
             .map((f) => (f.id === "f1" ? updatedF1 : f));
         }
       }
+      // ── Idempotent post-merge rename: fixes tenants who already ran the old
+      //    migration which left baloot2-1/baloot2-2 named "بلوت 3"/"بلوت 4".
+      //    Runs every load; no-op once names are correct. ──
+      migratedFloors = migratedFloors.map((f) => ({
+        ...f,
+        zones: f.zones.map((z) => ({
+          ...z,
+          items: z.items.map((item) => {
+            if (item.id === "baloot2-1" && item.name !== "بلوت 2") return { ...item, name: "بلوت 2" };
+            if (item.id === "baloot2-2" && item.name !== "بلوت 3") return { ...item, name: "بلوت 3" };
+            return item;
+          }),
+        })),
+      }));
       setFloors(migratedFloors);
       setMenu(data.menu);
       // Merge: prev wins for sessions created during the DB loading window (not yet in Supabase).
