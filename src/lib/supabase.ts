@@ -148,9 +148,10 @@ export interface HistoryRecord {
   // Split bill — cosmetic, one receipt showing per-person amount
   splitCount?: number;
   splitAmount?: number;                                  // total / splitCount
-  // Prepaid amount collected at session start
+  // Prepaid amount collected mid-session — needed for cross-shift cash attribution
   prepaidAmount?: number;
   prepaidMethod?: string;
+  prepaidAt?: number;     // when the prepaid cash physically entered the drawer
   // Manager correction — record a refund when cashier overcharged
   correction?: {
     originalTotal: number;

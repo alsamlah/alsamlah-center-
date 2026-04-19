@@ -1039,6 +1039,13 @@ export default function CashierSystem() {
       branchId: appCtx?.branch?.id, branchName: appCtx?.branch?.name,
       ...(extra?.payMethods?.length ? { payMethods: extra.payMethods } : {}),
       ...(extra?.splitCount && extra.splitCount > 1 ? { splitCount: extra.splitCount, splitAmount: parseFloat((finalT / extra.splitCount).toFixed(2)) } : {}),
+      // Carry prepaid info into history so shift reconciliation can attribute the cash
+      // to the SHIFT IT WAS COLLECTED IN, not the shift the session ended in.
+      ...(sess.prepaidAmount ? {
+        prepaidAmount: sess.prepaidAmount,
+        prepaidMethod: sess.prepaidMethod,
+        prepaidAt: sess.prepaidAt,
+      } : {}),
     };
     setHistory((p) => [record, ...p]);
     // Supabase: add to history + remove session
@@ -1222,11 +1229,47 @@ export default function CashierSystem() {
     const closeTime = Date.now();
     const recs = history.filter((h) => h.endTime >= currentShift.openedAt && h.endTime <= closeTime);
     const paidRecs = recs.filter((h) => (h.status ?? "paid") === "paid");
-    const totalRevenue = paidRecs.reduce((s, h) => s + h.total, 0);
-    const cashRevenue = paidRecs.filter((h) => h.payMethod === "cash").reduce((s, h) => s + h.total, 0);
-    const cardRevenue = paidRecs.filter((h) => h.payMethod === "card").reduce((s, h) => s + h.total, 0);
-    const transferRevenue = paidRecs.filter((h) => h.payMethod === "transfer").reduce((s, h) => s + h.total, 0);
-    const creditRevenue = paidRecs.filter((h) => h.payMethod === "credit").reduce((s, h) => s + h.total, 0);
+
+    // ── Revenue helpers ──────────────────────────────────────────────────────
+    // Money actually collected at session END (excludes prepaid + debt portions).
+    // For split payments, payMethods[] holds the per-method end-of-session breakdown.
+    const endCollectedTotal = (h: HistoryRecord) =>
+      Math.max(0, h.total - (h.prepaidAmount ?? 0) - (h.debtAmount ?? 0));
+
+    // Per-method amount collected at session END.
+    const endCollectedForMethod = (h: HistoryRecord, method: string): number => {
+      if (h.payMethods?.length) {
+        return h.payMethods.filter((m) => m.method === method).reduce((s, m) => s + (m.amount || 0), 0);
+      }
+      return h.payMethod === method ? endCollectedTotal(h) : 0;
+    };
+
+    // Per-method revenue for THIS shift, summing both end-of-session collections
+    // and any prepaid amounts whose prepaidAt falls inside the shift window
+    // (the prepaid cash physically entered the drawer when prepaidAt happened —
+    //  could be a different shift than the one the session ended in).
+    const shiftRevenueForMethod = (method: string): number => {
+      let total = 0;
+      // End-of-session payments: from records that ENDED in this shift.
+      for (const h of paidRecs) total += endCollectedForMethod(h, method);
+      // Prepaid payments: scan ALL history (a session may still be active or
+      // already ended in a previous shift) — count if prepaidAt is in window.
+      for (const h of history) {
+        if (h.prepaidAt && h.prepaidAt >= currentShift.openedAt && h.prepaidAt <= closeTime
+            && h.prepaidMethod === method) {
+          total += h.prepaidAmount ?? 0;
+        }
+      }
+      return total;
+    };
+
+    const cashRevenue = shiftRevenueForMethod("cash");
+    const cardRevenue = shiftRevenueForMethod("card");
+    const transferRevenue = shiftRevenueForMethod("transfer");
+    const creditRevenue = shiftRevenueForMethod("credit");
+    // totalRevenue = what was ACTUALLY collected this shift (cash+card+transfer+credit).
+    // Old behavior summed h.total which included debt and double-counted prepaid.
+    const totalRevenue = cashRevenue + cardRevenue + transferRevenue + creditRevenue;
     const debtTotal = paidRecs.reduce((s, h) => s + (h.debtAmount || 0), 0);
     const discountTotal = paidRecs.reduce((s, h) => s + (h.discount || 0), 0);
     const ordersRevenue = paidRecs.reduce((s, h) => s + (h.ordersTotal || 0), 0);
@@ -1251,8 +1294,12 @@ export default function CashierSystem() {
       }
     }
     const itemSales = Object.values(itemMap).sort((a, b) => b.qty - a.qty);
-    const expectedCashInDrawer = currentShift.cashFloat + cashRevenue;
+    // Refunds reduce drawer if paid in cash. Track cash refunds separately so the
+    // expected drawer reflects what actually left the till.
     const totalRefunds = paidRecs.reduce((s, h) => s + (h.correction?.refundAmount || 0), 0);
+    const cashRefunds = paidRecs.reduce((s, h) =>
+      s + (h.correction?.refundMethod === "cash" ? (h.correction?.refundAmount ?? 0) : 0), 0);
+    const expectedCashInDrawer = currentShift.cashFloat + cashRevenue - cashRefunds;
     // Cashier breakdown
     const byCashier: Record<string, { count: number; rev: number }> = {};
     for (const h of paidRecs) {
@@ -1282,7 +1329,9 @@ export default function CashierSystem() {
         creditRevenue: creditRevenue > 0 ? creditRevenue : undefined,
         debtTotal,
         discountTotal,
-        netRevenue: totalRevenue - discountTotal,
+        // totalRevenue already excludes discount (h.total is post-discount) and
+        // excludes debt (uncollected). Don't subtract discount again.
+        netRevenue: totalRevenue,
         ordersRevenue,
         timeRevenue,
         heldCount,
@@ -1292,7 +1341,7 @@ export default function CashierSystem() {
         itemSales,
         expectedCashInDrawer,
         totalRefunds: totalRefunds > 0 ? totalRefunds : undefined,
-        netAfterRefunds: totalRefunds > 0 ? totalRevenue - discountTotal - totalRefunds : undefined,
+        netAfterRefunds: totalRefunds > 0 ? totalRevenue - totalRefunds : undefined,
         madaRevenue: madaRevenue > 0 ? madaRevenue : undefined,
         madaCount: madaCount > 0 ? madaCount : undefined,
         madaFees: madaFees > 0 ? madaFees : undefined,
