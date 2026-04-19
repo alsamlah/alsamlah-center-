@@ -327,6 +327,35 @@ export async function addHistoryRecord(
   });
 }
 
+/**
+ * Atomic end-of-session: insert history + delete active session in one
+ * Postgres transaction. Either both succeed or both roll back.
+ *
+ * Eliminates the failure mode where addHistoryRecord succeeded but
+ * deleteSession failed (room shows occupied after customer paid) or
+ * vice versa (history exists, session still active → double-charge risk).
+ *
+ * Falls back to the legacy two-call sequence if the RPC isn't deployed.
+ */
+export async function endSessionAtomic(
+  tenantId: string,
+  branchId: string | null,
+  itemId: string,
+  record: HistoryRecord,
+) {
+  const { error } = await supabase.rpc("end_session_atomic", {
+    p_tenant_id: tenantId,
+    p_branch_id: branchId,
+    p_item_id: itemId,
+    p_record: record,
+  });
+  if (error) {
+    // Fallback: legacy non-atomic path. Better than nothing if RPC missing.
+    await addHistoryRecord(tenantId, branchId, record);
+    await deleteSession(tenantId, itemId);
+  }
+}
+
 export async function clearHistory(tenantId: string) {
   await supabase.from("history").delete().eq("tenant_id", tenantId);
   lsRemove("als-history");
@@ -371,24 +400,39 @@ export async function syncSettings(
 // ── Invoice Counter ───────────────────────────────────────────────────────────
 
 /**
- * Fetches the current invoice counter, resets to 1 if the business day has
- * changed, increments it, and returns the current value zero-padded to 4 digits.
- * e.g. "0001", "0042", "1337"
+ * Returns the next invoice number, zero-padded to 4 digits.
+ * Uses an atomic Postgres RPC (next_invoice_number) which serializes
+ * concurrent callers via SELECT FOR UPDATE — no two devices can ever
+ * receive the same invoice number, even when ending sessions simultaneously.
+ *
+ * Falls back to localStorage-only counter if the RPC fails (offline).
+ * Falls back to legacy read-then-write if the RPC isn't deployed yet
+ * (older databases).
  */
 export async function getAndIncrementInvoice(
   tenantId: string,
   eodHour = 5,
 ): Promise<string> {
+  const today = getBusinessDay(Date.now(), eodHour);
+
+  // Fast path: atomic RPC
+  const { data: rpcData, error: rpcErr } = await supabase
+    .rpc("next_invoice_number", { p_tenant_id: tenantId, p_today: today });
+
+  if (!rpcErr && typeof rpcData === "number") {
+    lsSet("als-invoice-counter", String(rpcData + 1));
+    return String(rpcData).padStart(4, "0");
+  }
+
+  // Fallback path: legacy read-then-write (race-prone, used only if RPC missing)
   const { data } = await supabase
     .from("invoice_counter")
     .select("counter, last_reset_date")
     .eq("tenant_id", tenantId)
     .single();
 
-  const today = getBusinessDay(Date.now(), eodHour);
   const lastReset: string = (data as { last_reset_date?: string } | null)?.last_reset_date ?? "";
   const dayChanged = lastReset !== today;
-
   const current = dayChanged ? 1 : (data?.counter ?? 1);
   const next = current + 1;
 

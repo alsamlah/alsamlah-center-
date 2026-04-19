@@ -11,7 +11,7 @@ import { printSession } from "@/lib/printReceipt";
 import { useAuth } from "@/lib/auth-context";
 import {
   loadTenantData, syncFloors, syncMenu, syncSession, deleteSession,
-  addHistoryRecord, syncDebts, syncSettings, getAndIncrementInvoice, clearHistory,
+  addHistoryRecord, endSessionAtomic, syncDebts, syncSettings, getAndIncrementInvoice, clearHistory,
   loadDebts, subscribeToSessions, subscribeToHistory, subscribeToDebts,
   syncSpecialGuests, loadSpecialGuests, subscribeToSpecialGuests,
   syncCustomers,
@@ -126,6 +126,11 @@ export default function CashierSystem() {
 
   // Track if we've loaded from Supabase for this tenant
   const loadedTenantRef = useRef<string | null>(null);
+  // Synchronous mirror of `sessions` state — used by realtime callbacks that
+  // need to compare incoming events against current local state to detect
+  // stale events (e.g., a DELETE for an old session arriving after a fresh
+  // session was started on the same room).
+  const sessionsRef = useRef<Record<string, Session>>({});
   // Suppress re-syncing data that arrived from realtime (prevents infinite loop)
   const realtimeSkipRef = useRef({
     debts: false, specialGuests: false,
@@ -360,6 +365,9 @@ export default function CashierSystem() {
   useEffect(() => { saveLS("als-maintenance-logs", maintenanceLogs); }, [maintenanceLogs, saveLS]);
   useEffect(() => { if (boxingTokens) saveLS("als-boxing-tokens", boxingTokens); }, [boxingTokens, saveLS]);
 
+  // Keep sessionsRef in sync with sessions state (read by realtime callbacks)
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+
   // ── Emergency flush: write sessions + orders to localStorage synchronously before unload ──
   // React's useEffect is async — if the user refreshes before the effect fires, the latest
   // state is lost. This handler guarantees the last known state hits localStorage.
@@ -462,17 +470,32 @@ export default function CashierSystem() {
   useEffect(() => {
     if (!tenantId) return;
 
-    // Sessions: INSERT/UPDATE → apply new session+orders; DELETE → remove
+    // Sessions: INSERT/UPDATE → apply new session+orders; DELETE → remove.
+    // Race guard: if a DELETE event arrives for an item that now holds a
+    // NEWER local session (cashier ended one and immediately started another
+    // on the same room), the DELETE refers to the OLD session — ignore it.
+    // sessionsRef gives us synchronous access to current local state for
+    // comparison; setSessions((prev) => ...) is too late because the
+    // setOrders call needs the same decision.
     const sessionsSub = subscribeToSessions(tenantId, (payload) => {
       const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
       if (p.eventType === "DELETE") {
         const itemId = p.old.item_id as string;
+        const oldSess = (p.old.session_data as Session | undefined) ?? null;
+        const localSess = sessionsRef.current[itemId];
+        // Local session is NEWER than the deleted one → cashier started a
+        // fresh session right after ending; the DELETE is stale, ignore it.
+        if (localSess && oldSess && localSess.startTime > oldSess.startTime) return;
         setSessions((prev) => { const n = { ...prev }; delete n[itemId]; return n; });
         setOrders((prev) => { const n = { ...prev }; delete n[itemId]; return n; });
       } else {
         const itemId = p.new.item_id as string;
         const session = p.new.session_data as Session;
         const rowOrders = (p.new.orders as OrderItem[]) ?? [];
+        const localSess = sessionsRef.current[itemId];
+        // Don't overwrite a NEWER local session with an older remote one
+        // (delayed UPDATE event from previous session arriving after fresh start).
+        if (localSess && localSess.startTime > session.startTime) return;
         setSessions((prev) => ({ ...prev, [itemId]: session }));
         setOrders((prev) => ({ ...prev, [itemId]: rowOrders }));
       }
@@ -1048,10 +1071,13 @@ export default function CashierSystem() {
       } : {}),
     };
     setHistory((p) => [record, ...p]);
-    // Supabase: add to history + remove session
+    // Supabase: atomic insert-history + delete-session in one transaction.
+    // Eliminates the failure mode where one succeeded and the other didn't,
+    // leaving either a "ghost" active session or history with an active session.
     if (tenantId) {
-      addHistoryRecord(tenantId, branchId, record).catch(() => {});
-      deleteSession(tenantId, itemId).catch(() => {});
+      endSessionAtomic(tenantId, branchId, itemId, record)
+        .then(() => setSyncFailed(false))
+        .catch(() => setSyncFailed(true));
     }
     let newDebtId: string | null = null;
     if ((debtAmt || 0) > 0) {
@@ -1064,40 +1090,56 @@ export default function CashierSystem() {
     if (sess.customerName && !guestNames.includes(sess.customerName)) {
       const ratio = settings.loyaltyPointsRatio || 50;
       const earnedPoints = Math.floor(finalT / ratio);
+      const referralBonus = settings.referralBonusPoints ?? 100;
+      const referralWelcome = settings.referralWelcomePoints ?? 50;
       setCustomers((prev) => {
         const idx = prev.findIndex((c) => c.name.toLowerCase() === sess.customerName.toLowerCase());
         if (idx >= 0) {
+          const existing = prev[idx];
           const updated = [...prev];
-          const existingDebtIds = updated[idx].linkedDebtIds || [];
+          const existingDebtIds = existing.linkedDebtIds || [];
+          // Award referral bonus on the customer's FIRST completed session,
+          // if they were created with referredBy set and not yet rewarded.
+          // (Previous logic looked for the new customer in `prev` by name,
+          //  which never matched because they were already in `prev` going
+          //  through THIS branch — but the logic was in the wrong branch.)
+          const isFirstVisit = existing.totalVisits === 0;
+          const shouldRewardReferrer = isFirstVisit
+            && !!existing.referredBy
+            && !existing.referralRewarded;
           updated[idx] = {
-            ...updated[idx],
-            totalVisits: updated[idx].totalVisits + 1,
-            totalSpent: updated[idx].totalSpent + finalT,
-            points: updated[idx].points + earnedPoints,
+            ...existing,
+            totalVisits: existing.totalVisits + 1,
+            totalSpent: existing.totalSpent + finalT,
+            points: existing.points + earnedPoints + (isFirstVisit && existing.referredBy && !existing.referralRewarded ? referralWelcome : 0),
             lastVisit: Date.now(),
-            phone: sess.phone || updated[idx].phone,
+            phone: sess.phone || existing.phone,
             linkedDebtIds: newDebtId ? [...existingDebtIds, newDebtId] : existingDebtIds,
+            ...(shouldRewardReferrer ? { referralRewarded: true } : {}),
           };
+          // Award referrer their bonus + increment their referralCount
+          if (shouldRewardReferrer) {
+            const refIdx = updated.findIndex((c) => c.id === existing.referredBy);
+            if (refIdx >= 0) {
+              updated[refIdx] = {
+                ...updated[refIdx],
+                points: updated[refIdx].points + referralBonus,
+                referralCount: (updated[refIdx].referralCount ?? 0) + 1,
+              };
+            }
+          }
           return updated;
         }
-        // New customer — check for referral and award welcome points + referrer bonus
-        const referralWelcome = settings.referralWelcomePoints ?? 50;
-        const referralBonus = settings.referralBonusPoints ?? 100;
+        // Auto-created customer (cashier didn't pre-create them via CustomersView).
+        // No referredBy data is available in this path, so no referral bonus
+        // is possible — referrals require pre-creation in CustomersView.
         const newCustomer = {
           id: uid(), name: sess.customerName, phone: sess.phone || "",
-          totalVisits: 1, totalSpent: finalT, points: earnedPoints + referralWelcome,
+          totalVisits: 1, totalSpent: finalT, points: earnedPoints,
           joinDate: Date.now(), lastVisit: Date.now(),
           linkedDebtIds: newDebtId ? [newDebtId] : [],
         };
-        // Award referral bonus to existing customer who referred this one (if any)
-        const withBonus = prev.map((c) => {
-          // find referrer linked to this new customer via referredBy (already set before session)
-          if (c.id && prev.some((x) => x.referredBy === c.id && x.name.toLowerCase() === sess.customerName.toLowerCase())) {
-            return { ...c, points: c.points + referralBonus, referralCount: (c.referralCount ?? 0) + 1 };
-          }
-          return c;
-        });
-        return [...withBonus, newCustomer];
+        return [...prev, newCustomer];
       });
     }
     // ── Boxing token deduction — deduct tokenCount (playerCount) tokens ──

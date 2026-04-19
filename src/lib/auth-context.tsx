@@ -81,8 +81,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAppCtx(ctx);
   }, []);
 
-  // ── Bootstrap: check existing session ──
+  // ── Bootstrap: check existing session + subscribe to auth changes ──
   useEffect(() => {
+    // Initial session check
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         setIsAuthenticated(true);
@@ -98,10 +99,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Fallback: if Supabase is unreachable, show auth screen after 5s
     const fallback = setTimeout(() => setSupabaseReady(true), 5000);
-    return () => clearTimeout(fallback);
 
-    // Listen for auth changes (login, logout, OAuth callback)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // Listen for auth changes (login, logout, OAuth callback, token refresh).
+    // Without this, the app does not react when the user signs in via OAuth,
+    // signs out from another tab, or has their session refreshed/expired.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setIsAuthenticated(true);
         setCtxLoading(true);
@@ -116,7 +118,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSupabaseReady(true);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(fallback);
+      subscription.unsubscribe();
+    };
   }, []);
 
   // ── Sign in with Google OAuth ──
