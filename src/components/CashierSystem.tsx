@@ -110,6 +110,9 @@ export default function CashierSystem() {
   const [toast, setToast] = useState<string | null>(null);
   const [dbLoading, setDbLoading] = useState(false);
 
+  // ── Sync health tracking ──
+  const [syncFailed, setSyncFailed] = useState(false);
+
   // ── QR notification state ──
   const [pendingQrCount, setPendingQrCount] = useState(0);
   const [qrToast, setQrToast] = useState<{ room_name: string; item_name: string; item_icon: string } | null>(null);
@@ -210,8 +213,10 @@ export default function CashierSystem() {
       }));
       setFloors(migratedFloors);
       setMenu(data.menu);
-      setSessions(data.sessions);
-      setOrders(data.orders);
+      // Merge: prev wins for sessions created during the DB loading window (not yet in Supabase).
+      // data.sessions already merges LS+Supabase (see db.ts), so this only protects the loading gap.
+      setSessions((prev) => ({ ...data.sessions, ...prev }));
+      setOrders((prev) => ({ ...data.orders, ...prev }));
       setHistory(data.history);
       setDebts(data.debts);
       setCustomers(data.customers);
@@ -233,6 +238,11 @@ export default function CashierSystem() {
         if (cs !== undefined && cs !== null) setCurrentShift(cs as Shift);
         if (sh && Array.isArray(sh) && sh.length > 0) setShiftHistory(sh as ShiftRecord[]);
       }).catch(() => {});
+      setDbLoading(false);
+    }).catch((err) => {
+      // If Supabase load fails entirely, fall back to localStorage (already loaded at mount).
+      // setDbLoading(false) is critical — without it the UI hangs indefinitely.
+      console.error("[loadTenantData] failed, using localStorage fallback:", err);
       setDbLoading(false);
     });
   }, [appCtx]);
@@ -267,6 +277,20 @@ export default function CashierSystem() {
   useEffect(() => { saveLS("als-promotions", promotions); }, [promotions, saveLS]);
   useEffect(() => { saveLS("als-maintenance-logs", maintenanceLogs); }, [maintenanceLogs, saveLS]);
   useEffect(() => { if (boxingTokens) saveLS("als-boxing-tokens", boxingTokens); }, [boxingTokens, saveLS]);
+
+  // ── Emergency flush: write sessions + orders to localStorage synchronously before unload ──
+  // React's useEffect is async — if the user refreshes before the effect fires, the latest
+  // state is lost. This handler guarantees the last known state hits localStorage.
+  useEffect(() => {
+    const flush = () => {
+      try {
+        localStorage.setItem("als-sessions", JSON.stringify(sessions));
+        localStorage.setItem("als-orders", JSON.stringify(orders));
+      } catch {}
+    };
+    window.addEventListener("beforeunload", flush);
+    return () => window.removeEventListener("beforeunload", flush);
+  }, [sessions, orders]);
 
   // Supabase background syncs (non-blocking)
   useEffect(() => {
@@ -768,7 +792,9 @@ export default function CashierSystem() {
     const curOrders = orders[itemId] || [];
     setOrders((p) => ({ ...p, [itemId]: curOrders }));
     // Supabase sync
-    if (tenantId) syncSession(tenantId, branchId, itemId, newSess, curOrders).catch(() => {});
+    if (tenantId) syncSession(tenantId, branchId, itemId, newSess, curOrders)
+      .then(() => setSyncFailed(false))
+      .catch(() => setSyncFailed(true));
     playSound("sessionOpen");
     notify(t.sessionStarted + " ✓");
   };
@@ -822,7 +848,9 @@ export default function CashierSystem() {
     setOrders((p) => { const n = { ...p }; delete n[fromItemId]; n[toItemId] = movedOrders; return n; });
     if (tenantId) {
       deleteSession(tenantId, fromItemId).catch(() => {});
-      syncSession(tenantId, branchId, toItemId, movedSess, movedOrders).catch(() => {});
+      syncSession(tenantId, branchId, toItemId, movedSess, movedOrders)
+        .then(() => setSyncFailed(false))
+        .catch(() => setSyncFailed(true));
     }
     setSelItem(toItemId);
     notify(t.switchActivity + " ✓");
@@ -849,7 +877,8 @@ export default function CashierSystem() {
   const updatePlayerCount = (itemId: string, count: number) => {
     setSessions((p) => {
       const updated = { ...p, [itemId]: { ...p[itemId], playerCount: count } };
-      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] || []).catch(() => {});
+      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] || [])
+        .then(() => setSyncFailed(false)).catch(() => setSyncFailed(true));
       return updated;
     });
   };
@@ -857,7 +886,8 @@ export default function CashierSystem() {
   const updateManualPrice = (itemId: string, price: number) => {
     setSessions((p) => {
       const updated = { ...p, [itemId]: { ...p[itemId], manualPrice: price } };
-      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] || []).catch(() => {});
+      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] || [])
+        .then(() => setSyncFailed(false)).catch(() => setSyncFailed(true));
       return updated;
     });
   };
@@ -865,7 +895,8 @@ export default function CashierSystem() {
   const addGrace = (itemId: string, mins: number) => {
     setSessions((p) => {
       const updated = { ...p, [itemId]: { ...p[itemId], graceMins: (p[itemId]?.graceMins || 0) + mins } };
-      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] || []).catch(() => {});
+      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] || [])
+        .then(() => setSyncFailed(false)).catch(() => setSyncFailed(true));
       return updated;
     });
     notify(`+${mins} ${t.freeMin} ✓`);
@@ -875,7 +906,8 @@ export default function CashierSystem() {
     const newItem = { ...mi, orderId: uid(), time: Date.now() };
     setOrders((p) => {
       const updated = { ...p, [itemId]: [...(p[itemId] || []), newItem] };
-      if (tenantId && sessions[itemId]) syncSession(tenantId, branchId, itemId, sessions[itemId], updated[itemId]).catch(() => {});
+      if (tenantId && sessions[itemId]) syncSession(tenantId, branchId, itemId, sessions[itemId], updated[itemId])
+        .then(() => setSyncFailed(false)).catch(() => setSyncFailed(true));
       return updated;
     });
     // Auto-decrement stock if tracking is enabled for this menu item
@@ -888,7 +920,8 @@ export default function CashierSystem() {
   const removeOrder = (itemId: string, oid: string) => {
     setOrders((p) => {
       const updated = { ...p, [itemId]: (p[itemId] || []).filter((o) => o.orderId !== oid) };
-      if (tenantId && sessions[itemId]) syncSession(tenantId, branchId, itemId, sessions[itemId], updated[itemId]).catch(() => {});
+      if (tenantId && sessions[itemId]) syncSession(tenantId, branchId, itemId, sessions[itemId], updated[itemId])
+        .then(() => setSyncFailed(false)).catch(() => setSyncFailed(true));
       return updated;
     });
   };
@@ -896,7 +929,8 @@ export default function CashierSystem() {
   const handlePrepay = (itemId: string, amount: number, method: string) => {
     setSessions((p) => {
       const updated = { ...p, [itemId]: { ...p[itemId], prepaidAmount: amount, prepaidMethod: method, prepaidAt: Date.now() } };
-      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] ?? []).catch(() => {});
+      if (tenantId) syncSession(tenantId, branchId, itemId, updated[itemId], orders[itemId] ?? [])
+        .then(() => setSyncFailed(false)).catch(() => setSyncFailed(true));
       return updated;
     });
     notify((isRTL ? "تم الدفع المقدم" : "Advance payment recorded") + " ✓");
@@ -1415,6 +1449,14 @@ export default function CashierSystem() {
             <span>⎋</span>
             <span>{isRTL ? "تسجيل خروج كامل" : "Sign out"}</span>
           </button>
+          {/* Sync status indicator — warns cashier if Supabase write failed */}
+          {syncFailed && (
+            <div className="mt-2 px-3 py-2 rounded-lg text-[10px] flex items-center gap-1.5 anim-fade"
+              style={{ background: "color-mix(in srgb, var(--red) 12%, transparent)", color: "var(--red)", border: "1px solid color-mix(in srgb, var(--red) 25%, transparent)" }}>
+              <span className="anim-pulse inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--red)" }} />
+              <span>{isRTL ? "⚠️ فشل الحفظ — لا تغلق الصفحة" : "⚠️ Save failed — don't close"}</span>
+            </div>
+          )}
         </div>
       </nav>
 

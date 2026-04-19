@@ -112,16 +112,15 @@ export async function loadTenantData(
 
   // ── Active sessions & orders ──
   const sessionsRows = sessionsRes.status === "fulfilled" ? sessionsRes.value.data ?? [] : [];
-  let sessions: Record<string, Session> = {};
-  let orders: Record<string, OrderItem[]> = {};
-  if (sessionsRows.length > 0) {
-    for (const row of sessionsRows) {
-      sessions[row.item_id] = row.session_data as Session;
-      orders[row.item_id] = (row.orders as OrderItem[]) ?? [];
-    }
-  } else {
-    sessions = parse(ls("als-sessions"), {});
-    orders = parse(ls("als-orders"), {});
+  // Always start from localStorage — sessions that failed to sync to Supabase survive a refresh.
+  // Supabase then overrides any session it knows about (source of truth when available).
+  // This prevents the catastrophic "exclusive OR" bug where a single unsynced session
+  // would cause ALL localStorage sessions to be discarded.
+  let sessions: Record<string, Session> = parse(ls("als-sessions"), {});
+  let orders: Record<string, OrderItem[]> = parse(ls("als-orders"), {});
+  for (const row of sessionsRows) {
+    sessions[row.item_id] = row.session_data as Session;
+    orders[row.item_id] = (row.orders as OrderItem[]) ?? [];
   }
 
   // ── History ──
