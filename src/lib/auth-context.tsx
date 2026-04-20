@@ -131,19 +131,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCtxLoading(false);
     }, 5000);
 
-    // Listen for auth changes (login, logout, OAuth callback, token refresh).
-    // onAuthStateChange ALSO fires INITIAL_SESSION immediately on subscribe,
-    // so on first load both this AND getSession.then() run in parallel —
-    // both call safeLoad which has its own loading guard, so no harm.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        setIsAuthenticated(true);
-        await safeLoad(session.user.id, session.user.email ?? undefined);
-      } else {
+    // Listen for auth changes. Critical: handle each event type narrowly,
+    // because the previous "any event → reload appCtx" approach caused two
+    // problems in production:
+    //   1) TOKEN_REFRESHED fires every ~hour. Reloading appCtx on each one
+    //      meant a brief loading flash, AND if the reload failed (network
+    //      blip) appCtx was set to null → cashier dumped onto the SETUP
+    //      screen mid-shift every hour.
+    //   2) onAuthStateChange ALSO fires INITIAL_SESSION immediately on
+    //      subscribe, racing with the getSession() call above.
+    //
+    // Strategy: only reload appCtx on actual user-identity TRANSITIONS
+    // (SIGNED_IN with a different userId, or first INITIAL_SESSION). For
+    // TOKEN_REFRESHED / USER_UPDATED keep the existing appCtx untouched.
+    const loadedUserIdRef = { current: null as string | null };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_OUT") {
+        loadedUserIdRef.current = null;
         setIsAuthenticated(false);
         setAppCtx(null);
         setCtxLoading(false);
+        setSupabaseReady(true);
+        return;
       }
+
+      if (session?.user) {
+        setIsAuthenticated(true);
+        // Only (re)load appCtx if the userId changed — same user firing
+        // TOKEN_REFRESHED / USER_UPDATED / duplicate INITIAL_SESSION events
+        // doesn't need a reload (their tenant context hasn't changed).
+        if (loadedUserIdRef.current !== session.user.id) {
+          loadedUserIdRef.current = session.user.id;
+          await safeLoad(session.user.id, session.user.email ?? undefined);
+        }
+      }
+      // If session is null but event isn't SIGNED_OUT (rare — usually a
+      // momentary refresh blip): do NOT clear appCtx. If it's a real logout
+      // SIGNED_OUT will arrive and we'll handle it above.
       setSupabaseReady(true);
     });
 
