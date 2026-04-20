@@ -137,6 +137,7 @@ export default function CashierSystem() {
     membershipPlans: false, memberships: false, promotions: false,
     maintenanceLogs: false, bookings: false, customers: false,
     floors: false, menu: false, boxingTokens: false,
+    settings: false,
   });
 
   const t = T[settings.lang];
@@ -399,6 +400,10 @@ export default function CashierSystem() {
 
   useEffect(() => {
     if (!tenantId || dbLoading) return;
+    // Skip if this state change came from a realtime event (avoid sync loop:
+    // remote change → setSettings → useEffect → syncSettings → triggers
+    // remote change → ...).
+    if (realtimeSkipRef.current.settings) { realtimeSkipRef.current.settings = false; return; }
     syncSettings(tenantId, settings, pins, roleNames).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, pins, roleNames, tenantId]);
@@ -647,16 +652,23 @@ export default function CashierSystem() {
         if (sh) setShiftHistory(sh as ShiftRecord[]);
       }).catch(() => {});
       // Reload system settings, pins, role names so manager-side changes
-      // (price tweaks, PIN updates, etc.) propagate to the cashier device
-      // without requiring a refresh.
-      supabase.from("tenant_settings").select("settings, pins, role_names")
-        .eq("tenant_id", tenantId).limit(1).single()
-        .then(({ data }) => {
+      // propagate to the cashier device. Set the skip flag so the resulting
+      // setSettings doesn't trigger syncSettings → write back to Supabase
+      // → re-fire this same callback (infinite loop).
+      (async () => {
+        try {
+          const { data } = await supabase.from("tenant_settings")
+            .select("settings, pins, role_names")
+            .eq("tenant_id", tenantId).limit(1).single();
           if (!data) return;
-          if (data.settings) setSettings(data.settings as SystemSettings);
-          if (data.pins) setPins(data.pins as Record<UserRole, string>);
-          if (data.role_names) setRoleNames(data.role_names as Record<UserRole, string>);
-        });
+          if (data.settings || data.pins || data.role_names) {
+            realtimeSkipRef.current.settings = true;
+            if (data.settings) setSettings(data.settings as SystemSettings);
+            if (data.pins) setPins(data.pins as Record<UserRole, string>);
+            if (data.role_names) setRoleNames(data.role_names as Record<UserRole, string>);
+          }
+        } catch { /* swallow — non-critical */ }
+      })();
       // Also reload boxing tokens (stored in same tenant_settings row)
       loadBoxingTokenData(tenantId).then((bt) => {
         if (bt) {

@@ -86,17 +86,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Bootstrap: check existing session + subscribe to auth changes ──
   useEffect(() => {
+    // Helper: load tenant context and ALWAYS clear ctxLoading even on throw.
+    // Without try/finally, a network error mid-loadAppContext leaves the
+    // UI stuck on the loading screen forever (no "Loading..." gate exits).
+    const safeLoad = async (userId: string, email?: string) => {
+      setCtxLoading(true);
+      try {
+        const ctx = await loadAppContext(userId, email);
+        setAppCtx(ctx);
+      } catch (err) {
+        console.error("[auth] loadAppContext failed:", err);
+        setAppCtx(null);
+      } finally {
+        setCtxLoading(false);
+      }
+    };
+
     // Initial session check
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         setIsAuthenticated(true);
-        setCtxLoading(true);
-        const ctx = await loadAppContext(session.user.id, session.user.email ?? undefined);
-        setAppCtx(ctx);
-        setCtxLoading(false);
+        await safeLoad(session.user.id, session.user.email ?? undefined);
       }
       setSupabaseReady(true);
-    }).catch(() => {
+    }).catch((err) => {
+      console.error("[auth] getSession failed:", err);
+      setCtxLoading(false);
       setSupabaseReady(true);
     });
 
@@ -104,15 +119,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const fallback = setTimeout(() => setSupabaseReady(true), 5000);
 
     // Listen for auth changes (login, logout, OAuth callback, token refresh).
-    // Without this, the app does not react when the user signs in via OAuth,
-    // signs out from another tab, or has their session refreshed/expired.
+    // onAuthStateChange ALSO fires INITIAL_SESSION immediately on subscribe,
+    // so on first load both this AND getSession.then() run in parallel —
+    // both call safeLoad which has its own loading guard, so no harm.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setIsAuthenticated(true);
-        setCtxLoading(true);
-        const ctx = await loadAppContext(session.user.id, session.user.email ?? undefined);
-        setAppCtx(ctx);
-        setCtxLoading(false);
+        await safeLoad(session.user.id, session.user.email ?? undefined);
       } else {
         setIsAuthenticated(false);
         setAppCtx(null);
