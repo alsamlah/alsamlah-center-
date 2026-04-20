@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS, FONTS, FONT_SIZES, THEMES, T } from "@/lib/settings";
 import { supabase } from "@/lib/supabase";
 import type { Floor, MenuItem, Session, OrderItem, HistoryRecord, Debt, UserLogin, UserRole, CalcResult, Shift, ShiftRecord, Customer, SpecialGuest, Tournament, InspectionRegister, Booking, MembershipPlan, Membership, Promotion, MaintenanceLog, BoxingTokenData, BoxingTokenEntry } from "@/lib/supabase";
 import type { SystemSettings, ThemeMode, FontFamily, FontSize, Language } from "@/lib/settings";
-import { uid, fmtTime, fmtMoney, fmtD } from "@/lib/utils";
+import { uid, fmtTime, fmtMoney, fmtD, getBusinessDay } from "@/lib/utils";
 import { printSession } from "@/lib/printReceipt";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -479,6 +479,11 @@ export default function CashierSystem() {
     // setOrders call needs the same decision.
     const sessionsSub = subscribeToSessions(tenantId, (payload) => {
       const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
+      // Multi-branch isolation: filter events by branch so device A in branch X
+      // doesn't react to sessions from branch Y. Single-branch tenants have
+      // branchId = null on both sides → matches.
+      const eventBranch = (p.eventType === "DELETE" ? p.old.branch_id : p.new.branch_id) as string | null | undefined;
+      if (branchId !== null && eventBranch && eventBranch !== branchId) return;
       if (p.eventType === "DELETE") {
         const itemId = p.old.item_id as string;
         const oldSess = (p.old.session_data as Session | undefined) ?? null;
@@ -501,15 +506,24 @@ export default function CashierSystem() {
       }
     });
 
-    // History: INSERT → prepend if not already present (guard against own-device duplicate)
+    // History: INSERT → prepend; UPDATE → replace (manager corrections);
+    // DELETE → remove. INSERT guards against own-device duplicates.
     const historySub = subscribeToHistory(tenantId, (payload) => {
-      const p = payload as { eventType: string; new: Record<string, unknown> };
+      const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
       if (p.eventType === "INSERT") {
         const record = p.new.data as HistoryRecord;
         setHistory((prev) => {
           if (prev.some((r) => r.id === record.id)) return prev;
           return [record, ...prev];
         });
+      } else if (p.eventType === "UPDATE") {
+        const record = p.new.data as HistoryRecord;
+        setHistory((prev) => prev.map((r) => r.id === record.id ? record : r));
+      } else if (p.eventType === "DELETE") {
+        const oldRecord = p.old.data as HistoryRecord | undefined;
+        if (oldRecord?.id) {
+          setHistory((prev) => prev.filter((r) => r.id !== oldRecord.id));
+        }
       }
     });
 
@@ -624,12 +638,25 @@ export default function CashierSystem() {
       }).catch(() => {});
     });
 
-    // Settings (includes shifts): any change → reload shift data
+    // Settings (includes shifts + system settings + pins): any change →
+    // reload everything that lives in tenant_settings.
     const settingsSub = subscribeToSettings(tenantId, () => {
+      // Reload shift data
       loadShiftData(tenantId).then(({ currentShift: cs, shiftHistory: sh }) => {
         if (cs !== undefined) setCurrentShift(cs as Shift | null);
         if (sh) setShiftHistory(sh as ShiftRecord[]);
       }).catch(() => {});
+      // Reload system settings, pins, role names so manager-side changes
+      // (price tweaks, PIN updates, etc.) propagate to the cashier device
+      // without requiring a refresh.
+      supabase.from("tenant_settings").select("settings, pins, role_names")
+        .eq("tenant_id", tenantId).limit(1).single()
+        .then(({ data }) => {
+          if (!data) return;
+          if (data.settings) setSettings(data.settings as SystemSettings);
+          if (data.pins) setPins(data.pins as Record<UserRole, string>);
+          if (data.role_names) setRoleNames(data.role_names as Record<UserRole, string>);
+        });
       // Also reload boxing tokens (stored in same tenant_settings row)
       loadBoxingTokenData(tenantId).then((bt) => {
         if (bt) {
@@ -693,6 +720,10 @@ export default function CashierSystem() {
         filter: `tenant_id=eq.${tenantId}`,
       }, (payload) => {
         const o = payload.new as { room_name: string; item_name: string; item_icon: string; status: string };
+        // Only increment + ring + toast for PENDING orders. Inserts that arrive
+        // already in another status (rare but possible — e.g., manual SQL) shouldn't
+        // count as new pending work.
+        if (o.status !== "pending") return;
         setPendingQrCount((p) => p + 1);
         playSound("qrOrder");
         setQrToast({ room_name: o.room_name, item_name: o.item_name, item_icon: o.item_icon });
@@ -702,7 +733,13 @@ export default function CashierSystem() {
         filter: `tenant_id=eq.${tenantId}`,
       }, (payload) => {
         const o = payload.new as { status: string };
-        if (o.status !== "pending") setPendingQrCount((p) => Math.max(0, p - 1));
+        const old = (payload.old as { status?: string } | undefined) ?? {};
+        // Only decrement when transitioning OUT of pending. Without checking
+        // the prior state, an UPDATE that didn't change status (or pending → pending)
+        // would still decrement the badge incorrectly.
+        if (old.status === "pending" && o.status !== "pending") {
+          setPendingQrCount((p) => Math.max(0, p - 1));
+        }
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -1061,7 +1098,12 @@ export default function CashierSystem() {
       invoiceNo, status: "paid",
       branchId: appCtx?.branch?.id, branchName: appCtx?.branch?.name,
       ...(extra?.payMethods?.length ? { payMethods: extra.payMethods } : {}),
-      ...(extra?.splitCount && extra.splitCount > 1 ? { splitCount: extra.splitCount, splitAmount: parseFloat((finalT / extra.splitCount).toFixed(2)) } : {}),
+      // Split bill: round UP per person so the sum covers the total exactly
+      // (avoids the "100/3 = 33.33×3 = 99.99 short by 1 halala" rounding loss).
+      // The last person may pay 1 fil more — totally acceptable in practice.
+      ...(extra?.splitCount && extra.splitCount > 1
+        ? { splitCount: extra.splitCount, splitAmount: Math.ceil((finalT / extra.splitCount) * 100) / 100 }
+        : {}),
       // Carry prepaid info into history so shift reconciliation can attribute the cash
       // to the SHIFT IT WAS COLLECTED IN, not the shift the session ended in.
       ...(sess.prepaidAmount ? {
@@ -1188,6 +1230,27 @@ export default function CashierSystem() {
     setHistory((p) => [record, ...p]);
     if (tenantId) addHistoryRecord(tenantId, branchId, record).catch(() => {});
 
+    // Deduct boxing tokens — held = customer was billed for the tokens just like
+    // a regular end-session. Without this, the manager's token balance drifts
+    // upward over time as held sessions accumulate.
+    if (info?.zone?.pricingMode === "token") {
+      const tokenCount = sess.playerCount ?? 1;
+      const cur = boxingTokens ?? DEFAULT_BOXING_TOKENS;
+      const newBalance = Math.max(0, cur.balance - tokenCount);
+      const tokenEntry: BoxingTokenEntry = {
+        id: uid(), date: Date.now(), type: "deduct", amount: -tokenCount,
+        by: user?.name || user?.role || "",
+        note: isRTL ? `جلسة معلقة: ${info.name} (${tokenCount} عملة)` : `Held session: ${info.name} (${tokenCount} token${tokenCount > 1 ? "s" : ""})`,
+        balanceAfter: newBalance,
+      };
+      const updatedTokens: BoxingTokenData = {
+        balance: newBalance,
+        log: [tokenEntry, ...cur.log].slice(0, 100),
+      };
+      setBoxingTokens(updatedTokens);
+      if (tenantId) syncBoxingTokens(tenantId, updatedTokens).catch(() => {});
+    }
+
     if (!keepOccupied) {
       // Free the room
       if (tenantId) deleteSession(tenantId, itemId).catch(() => {});
@@ -1210,14 +1273,23 @@ export default function CashierSystem() {
   };
 
   const handleCorrection = (recordId: string, correctedTotal: number, refundMethod: "cash" | "transfer", note?: string) => {
+    // Guard: corrected total must be less than original (refund = positive amount).
+    // If a manager enters a larger correctedTotal, refund would go negative —
+    // meaning customer OWES more, which the correction flow can't handle.
+    // For additional charges, use a new session/debt, not a correction.
     setHistory((prev) => prev.map((r) => {
       if (r.id !== recordId) return r;
+      const refundAmount = r.total - correctedTotal;
+      if (refundAmount <= 0) {
+        notify(isRTL ? "⚠️ المبلغ المصحح يجب أن يكون أقل من الأصلي" : "⚠️ Corrected total must be less than original");
+        return r;
+      }
       const updated: HistoryRecord = {
         ...r,
         correction: {
           originalTotal: r.total,
           correctedTotal,
-          refundAmount: r.total - correctedTotal,
+          refundAmount,
           refundMethod,
           refundBy: user?.name || "",
           refundDate: Date.now(),
@@ -1319,6 +1391,13 @@ export default function CashierSystem() {
     const heldRecs = recs.filter((h) => h.status === "held-occupied" || h.status === "held-free");
     const heldCount = heldRecs.length;
     const heldTotal = heldRecs.reduce((s, h) => s + h.total, 0);
+    // Split held into "paid + still in room" vs "freebie". The first category
+    // represents real revenue collected (payment method not captured today —
+    // surface it so the owner sees it instead of it disappearing into "held").
+    const heldOccupiedTotal = heldRecs
+      .filter((h) => h.status === "held-occupied")
+      .reduce((s, h) => s + h.total, 0);
+    const heldFreeTotal = heldTotal - heldOccupiedTotal;
     // Zone breakdown
     const byZone: Record<string, { count: number; rev: number }> = {};
     for (const h of paidRecs) {
@@ -1350,10 +1429,32 @@ export default function CashierSystem() {
       byCashier[c].count++;
       byCashier[c].rev += h.total;
     }
-    // Mada (card) fees: 0.008 SAR per transaction, capped at 160 SAR/day
-    const madaRecs = paidRecs.filter((h) => h.payMethod === "card" || (h.payMethods?.some((m) => m.method === "card")));
-    const madaCount = madaRecs.length;
-    const madaFees = Math.min(madaCount * 0.008, 160);
+    // Mada (card) fees: 0.008 SAR per transaction, capped at 160 SAR/DAY.
+    // The cap is per business day, not per shift. To prevent two same-day
+    // shifts from each hitting the 160 cap (= 320 fees vs the real 160),
+    // count Mada transactions across the WHOLE business day in this shift's
+    // window, but only charge fees for transactions inside this shift,
+    // proportionally adjusted for any cap already consumed by earlier shifts.
+    // Business day cutoff: 5 AM (matches getAndIncrementInvoice default in db.ts)
+    const EOD_HOUR = 5;
+    const todayStart = getBusinessDay(currentShift.openedAt, EOD_HOUR);
+    const dayStartTs = (() => {
+      const [y, m, d] = todayStart.split("-").map(Number);
+      return new Date(y, m - 1, d, EOD_HOUR, 0, 0).getTime();
+    })();
+    const madaRecsThisShift = paidRecs.filter((h) =>
+      h.payMethod === "card" || (h.payMethods?.some((m) => m.method === "card")));
+    const madaCount = madaRecsThisShift.length;
+    // Count Mada txns earlier today (this business day) in already-closed shifts
+    const earlierTodayMadaCount = history.filter((h) =>
+      h.endTime >= dayStartTs && h.endTime < currentShift.openedAt
+      && (h.payMethod === "card" || (h.payMethods?.some((m) => m.method === "card")))
+    ).length;
+    // Total per-day count (theoretical); fees only for what's left under the cap
+    const totalDayMadaCount = earlierTodayMadaCount + madaCount;
+    const totalDayFees = Math.min(totalDayMadaCount * 0.008, 160);
+    const earlierFees = Math.min(earlierTodayMadaCount * 0.008, 160);
+    const madaFees = Math.max(0, totalDayFees - earlierFees);
     const madaRevenue = cardRevenue;
     // Credit card fees: 2.5%
     const creditFees = creditRevenue * 0.025;
@@ -1372,18 +1473,21 @@ export default function CashierSystem() {
         debtTotal,
         discountTotal,
         // totalRevenue already excludes discount (h.total is post-discount) and
-        // excludes debt (uncollected). Don't subtract discount again.
-        netRevenue: totalRevenue,
+        // excludes debt (uncollected). Net = revenue minus bank fees the
+        // business actually pays (Mada per-txn + credit 2.5%).
+        netRevenue: totalRevenue - madaFees - creditFees,
         ordersRevenue,
         timeRevenue,
         heldCount,
         heldTotal,
+        heldOccupiedTotal: heldOccupiedTotal > 0 ? heldOccupiedTotal : undefined,
+        heldFreeTotal: heldFreeTotal > 0 ? heldFreeTotal : undefined,
         byZone,
         byCashier: Object.keys(byCashier).length > 0 ? byCashier : undefined,
         itemSales,
         expectedCashInDrawer,
         totalRefunds: totalRefunds > 0 ? totalRefunds : undefined,
-        netAfterRefunds: totalRefunds > 0 ? totalRevenue - totalRefunds : undefined,
+        netAfterRefunds: totalRefunds > 0 ? totalRevenue - madaFees - creditFees - totalRefunds : undefined,
         madaRevenue: madaRevenue > 0 ? madaRevenue : undefined,
         madaCount: madaCount > 0 ? madaCount : undefined,
         madaFees: madaFees > 0 ? madaFees : undefined,
@@ -1392,11 +1496,20 @@ export default function CashierSystem() {
         cashDiscrepancy: actualCashInDrawer != null ? actualCashInDrawer - expectedCashInDrawer : undefined,
       },
     };
-    const newHistory = [record, ...shiftHistory.slice(0, 29)];
+    // Keep ALL shifts locally (was truncated to 30 — destroying historical
+    // audit trail). Supabase still caps at 30 in syncShift since shift_history
+    // is a JSONB column, but localStorage retains the full record forever.
+    const newHistory = [record, ...shiftHistory];
     setShiftHistory(newHistory);
     setCurrentShift(null);
     setLastClosedShift(record);
-    if (tenantId) syncShift(tenantId, null, newHistory).catch(() => {});
+    // Track sync failure so the red banner shows if Supabase didn't accept
+    // the shift — cashier sees this BEFORE refreshing the page.
+    if (tenantId) {
+      syncShift(tenantId, null, newHistory)
+        .then(() => setSyncFailed(false))
+        .catch(() => setSyncFailed(true));
+    }
     notify(t.shiftClosedMsg + " ✓");
   };
 
@@ -1585,7 +1698,7 @@ export default function CashierSystem() {
           }
           <p className="text-xs mt-1" style={{ color: "var(--text2)" }}>{t.appSub}</p>
         </div>
-        <div className="flex flex-col gap-1 flex-1">
+        <div className="flex flex-col gap-1 flex-1 overflow-y-auto min-h-0 nav-scroll">
           {navItems.map((n) => (
             <button key={n.id} onClick={() => { setView(n.id); setSelItem(null); if (n.id === "qr") setPendingQrCount(0); }}
               className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all"

@@ -224,6 +224,8 @@ export interface ShiftRecord extends Shift {
     timeRevenue?: number;
     heldCount?: number;
     heldTotal?: number;
+    heldOccupiedTotal?: number;   // held = paid + still in room (revenue collected, method unknown)
+    heldFreeTotal?: number;       // held = freebie / VIP (no money changed hands)
     byZone?: Record<string, { count: number; rev: number }>;
     byCashier?: Record<string, { count: number; rev: number }>;
     itemSales?: { name: string; icon: string; qty: number; rev: number }[];

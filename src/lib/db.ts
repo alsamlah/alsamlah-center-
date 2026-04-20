@@ -101,7 +101,10 @@ export async function loadTenantData(
     supabase.from("floors").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("menu_items").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("active_sessions").select("*").eq("tenant_id", tenantId),
-    supabase.from("history").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(500),
+    // History limit raised from 500 to 5000. Older records remain accessible
+    // via Supabase queries directly (e.g., the VAT report tab can query its
+    // own date range). 5000 covers ~14 months at 350 sessions/day.
+    supabase.from("history").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(5000),
     supabase.from("debts").select("*").eq("tenant_id", tenantId),
     supabase.from("tenant_settings").select("*").eq("tenant_id", tenantId).limit(1).single(),
     supabase.from("invoice_counter").select("*").eq("tenant_id", tenantId).limit(1).single(),
@@ -490,7 +493,10 @@ export function subscribeToHistory(tenantId: string, cb: RealtimeCallback) {
   return supabase
     .channel(`history:${tenantId}`)
     .on("postgres_changes", {
-      event: "INSERT",
+      // Listen to all changes — was INSERT-only, which meant manager
+      // corrections (UPDATE) and deletions never propagated to other devices
+      // until they refreshed.
+      event: "*",
       schema: "public",
       table: "history",
       filter: `tenant_id=eq.${tenantId}`,

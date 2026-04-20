@@ -50,12 +50,15 @@ async function loadAppContext(userId: string, userEmail?: string): Promise<AppCo
   if (tErr || !tenant) return null;
 
   // 3. Get branch (if assigned)
+  // Defense in depth: also filter by tenant_id so a misconfigured RLS policy
+  // can never return another tenant's branch.
   let branch: Branch | null = null;
   if (tu.branch_id) {
     const { data: b } = await supabase
       .from("branches")
       .select("*")
       .eq("id", tu.branch_id)
+      .eq("tenant_id", tu.tenant_id)
       .single();
     branch = b ?? null;
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import type { UserRole, UserLogin } from "@/lib/supabase";
 import type { SystemSettings } from "@/lib/settings";
@@ -21,6 +21,11 @@ export default function RoleSelectScreen({ pins, roleNames, onLogin, settings }:
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [shake, setShake] = useState(false);
+  // Failure tracking — locks out the PIN entry for 30s after 5 wrong tries
+  // to slow brute-force attempts on the POS device.
+  const [failCount, setFailCount] = useState(0);
+  const [lockoutUntil, setLockoutUntil] = useState(0);
+  const [, forceTick] = useState(0);
 
   const t = T[settings.lang];
   const isRTL = settings.lang === "ar";
@@ -29,20 +34,41 @@ export default function RoleSelectScreen({ pins, roleNames, onLogin, settings }:
   const tenant = appCtx?.tenant;
   const userEmail = appCtx?.supabaseUser?.email;
 
+  // Re-render every 1s while locked so the countdown updates
+  useEffect(() => {
+    if (lockoutUntil <= Date.now()) return;
+    const iv = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(iv);
+  }, [lockoutUntil]);
+
+  const lockedSeconds = Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000));
+  const isLocked = lockedSeconds > 0;
+
   const handleNumpad = (n: string) => {
+    if (isLocked) return;
     if (n === "del") { setPin((p) => p.slice(0, -1)); setError(false); return; }
     if (n === "clear") { setPin(""); setError(false); return; }
-    if (pin.length >= 6) return;
+    // Cap input at 4 (PIN length) — old code allowed up to 6 but only validated
+    // at length 4, leaving the user stuck if they typed 5.
+    if (pin.length >= 4) return;
     const newPin = pin + n;
     setPin(newPin);
     setError(false);
     if (newPin.length === 4 && selectedRole) {
       if (newPin === pins[selectedRole]) {
+        setFailCount(0);
         setTimeout(() => onLogin({ role: selectedRole, name: roleNames[selectedRole] }), 200);
       } else {
         setTimeout(() => {
           setError(true);
           setShake(true);
+          const newFails = failCount + 1;
+          setFailCount(newFails);
+          // Lock for 30s after 5 consecutive wrong tries
+          if (newFails >= 5) {
+            setLockoutUntil(Date.now() + 30000);
+            setFailCount(0);
+          }
           setTimeout(() => { setShake(false); setPin(""); }, 500);
         }, 200);
       }
@@ -132,8 +158,13 @@ export default function RoleSelectScreen({ pins, roleNames, onLogin, settings }:
             ))}
           </div>
 
-          {error && (
+          {error && !isLocked && (
             <div className="text-xs text-center mb-4" style={{ color: "var(--red)" }}>{t.wrongPin}</div>
+          )}
+          {isLocked && (
+            <div className="text-xs text-center mb-4 font-bold" style={{ color: "var(--red)" }}>
+              🔒 {isRTL ? `حاول مجدداً بعد ${lockedSeconds} ثانية` : `Try again in ${lockedSeconds}s`}
+            </div>
           )}
 
           {/* Numpad */}
