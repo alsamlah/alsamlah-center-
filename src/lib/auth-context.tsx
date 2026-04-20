@@ -86,13 +86,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Bootstrap: check existing session + subscribe to auth changes ──
   useEffect(() => {
-    // Helper: load tenant context and ALWAYS clear ctxLoading even on throw.
-    // Without try/finally, a network error mid-loadAppContext leaves the
-    // UI stuck on the loading screen forever (no "Loading..." gate exits).
+    // Helper: load tenant context with hard timeout. Without this guard,
+    // a hung Supabase request (network blip, tenant_users query that never
+    // resolves) leaves the UI on the loading screen forever — the previous
+    // 5-second supabaseReady fallback only opened the auth gate but the
+    // ctxLoading gate stayed closed, so the app kept showing "Loading...".
     const safeLoad = async (userId: string, email?: string) => {
       setCtxLoading(true);
       try {
-        const ctx = await loadAppContext(userId, email);
+        const ctx = await Promise.race([
+          loadAppContext(userId, email),
+          new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error("loadAppContext timeout")), 8000)),
+        ]);
         setAppCtx(ctx);
       } catch (err) {
         console.error("[auth] loadAppContext failed:", err);
@@ -115,8 +121,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSupabaseReady(true);
     });
 
-    // Fallback: if Supabase is unreachable, show auth screen after 5s
-    const fallback = setTimeout(() => setSupabaseReady(true), 5000);
+    // Hard fallback: if Supabase auth is completely unreachable after 5s,
+    // open BOTH gates (supabaseReady + ctxLoading) so the user at minimum
+    // sees the AuthScreen instead of an indefinite loading spinner.
+    const fallback = setTimeout(() => {
+      setSupabaseReady(true);
+      setCtxLoading(false);
+    }, 5000);
 
     // Listen for auth changes (login, logout, OAuth callback, token refresh).
     // onAuthStateChange ALSO fires INITIAL_SESSION immediately on subscribe,
