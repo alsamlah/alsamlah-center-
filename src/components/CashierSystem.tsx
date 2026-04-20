@@ -659,7 +659,7 @@ export default function CashierSystem() {
         try {
           const { data } = await supabase.from("tenant_settings")
             .select("settings, pins, role_names")
-            .eq("tenant_id", tenantId).limit(1).single();
+            .eq("tenant_id", tenantId).limit(1).maybeSingle();
           if (!data) return;
           if (data.settings || data.pins || data.role_names) {
             realtimeSkipRef.current.settings = true;

@@ -98,23 +98,23 @@ export async function loadTenantData(
     promotionsRes,
     maintenanceLogsRes,
   ] = await Promise.allSettled([
-    supabase.from("floors").select("*").eq("tenant_id", tenantId).limit(1).single(),
-    supabase.from("menu_items").select("*").eq("tenant_id", tenantId).limit(1).single(),
+    supabase.from("floors").select("*").eq("tenant_id", tenantId).limit(1).maybeSingle(),
+    supabase.from("menu_items").select("*").eq("tenant_id", tenantId).limit(1).maybeSingle(),
     supabase.from("active_sessions").select("*").eq("tenant_id", tenantId),
     // History limit raised from 500 to 5000. Older records remain accessible
     // via Supabase queries directly (e.g., the VAT report tab can query its
     // own date range). 5000 covers ~14 months at 350 sessions/day.
     supabase.from("history").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(5000),
     supabase.from("debts").select("*").eq("tenant_id", tenantId),
-    supabase.from("tenant_settings").select("*").eq("tenant_id", tenantId).limit(1).single(),
-    supabase.from("invoice_counter").select("*").eq("tenant_id", tenantId).limit(1).single(),
-    supabase.from("customers").select("*").eq("tenant_id", tenantId).limit(1).single(),
+    supabase.from("tenant_settings").select("*").eq("tenant_id", tenantId).limit(1).maybeSingle(),
+    supabase.from("invoice_counter").select("*").eq("tenant_id", tenantId).limit(1).maybeSingle(),
+    supabase.from("customers").select("*").eq("tenant_id", tenantId).limit(1).maybeSingle(),
     supabase.from("tournaments").select("data").eq("tenant_id", tenantId),
     supabase.from("inspection_registers").select("*").eq("tenant_id", tenantId),
     supabase.from("bookings").select("*").eq("tenant_id", tenantId),
-    supabase.from("membership_plans").select("*").eq("tenant_id", tenantId).limit(1).single(),
+    supabase.from("membership_plans").select("*").eq("tenant_id", tenantId).limit(1).maybeSingle(),
     supabase.from("memberships").select("*").eq("tenant_id", tenantId),
-    supabase.from("promotions").select("*").eq("tenant_id", tenantId).limit(1).single(),
+    supabase.from("promotions").select("*").eq("tenant_id", tenantId).limit(1).maybeSingle(),
     supabase.from("maintenance_logs").select("*").eq("tenant_id", tenantId),
   ]);
 
@@ -432,7 +432,7 @@ export async function getAndIncrementInvoice(
     .from("invoice_counter")
     .select("counter, last_reset_date")
     .eq("tenant_id", tenantId)
-    .single();
+    .maybeSingle();
 
   const lastReset: string = (data as { last_reset_date?: string } | null)?.last_reset_date ?? "";
   const dayChanged = lastReset !== today;
@@ -555,7 +555,7 @@ export async function loadCustomers(tenantId: string): Promise<Customer[]> {
     .select("*")
     .eq("tenant_id", tenantId)
     .limit(1)
-    .single();
+    .maybeSingle();
   if (error || !data) return parse(ls("als-customers"), []);
   const customers = (data.data as Customer[]) ?? [];
   lsSet("als-customers", customers);
@@ -679,7 +679,7 @@ export async function loadMenu(tenantId: string): Promise<MenuItem[]> {
     .select("*")
     .eq("tenant_id", tenantId)
     .limit(1)
-    .single();
+    .maybeSingle();
   if (error || !data) return parse(ls("als-menu"), []);
   const menu = (data.data as MenuItem[]) ?? [];
   lsSet("als-menu", menu);
@@ -706,7 +706,7 @@ export async function loadFloors(tenantId: string): Promise<Floor[]> {
     .select("*")
     .eq("tenant_id", tenantId)
     .limit(1)
-    .single();
+    .maybeSingle();
   if (error || !data) return parse(ls("als-floors"), []);
   const floors = (data.data as Floor[]) ?? [];
   lsSet("als-floors", floors);
@@ -747,7 +747,7 @@ export async function loadSettings(tenantId: string) {
     .select("*")
     .eq("tenant_id", tenantId)
     .limit(1)
-    .single();
+    .maybeSingle();
   return data;
 }
 
@@ -786,7 +786,7 @@ export async function loadShiftData(tenantId: string): Promise<{ currentShift: u
       .select("current_shift, shift_history")
       .eq("tenant_id", tenantId)
       .limit(1)
-      .single();
+      .maybeSingle();
     return {
       currentShift: data?.current_shift ?? null,
       shiftHistory: (data?.shift_history as unknown[]) ?? [],
@@ -805,7 +805,7 @@ export async function loadBoxingTokenData(tenantId: string): Promise<BoxingToken
       .select("boxing_tokens")
       .eq("tenant_id", tenantId)
       .limit(1)
-      .single();
+      .maybeSingle();
     if (data?.boxing_tokens) {
       lsSet("als-boxing-tokens", data.boxing_tokens);
       return data.boxing_tokens as BoxingTokenData;
@@ -866,7 +866,7 @@ export async function loadMembershipPlans(tenantId: string): Promise<MembershipP
     .select("*")
     .eq("tenant_id", tenantId)
     .limit(1)
-    .single();
+    .maybeSingle();
   if (error || !data) return parse(ls("als-membership-plans"), []);
   const plans = (data.data as MembershipPlan[]) ?? [];
   lsSet("als-membership-plans", plans);
@@ -936,7 +936,7 @@ export async function loadPromotions(tenantId: string): Promise<Promotion[]> {
     .select("*")
     .eq("tenant_id", tenantId)
     .limit(1)
-    .single();
+    .maybeSingle();
   if (error || !data) return parse(ls("als-promotions"), []);
   const promos = (data.data as Promotion[]) ?? [];
   lsSet("als-promotions", promos);

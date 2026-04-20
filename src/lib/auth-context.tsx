@@ -32,11 +32,13 @@ export function useAuth() {
 // ── Load tenant context for the current Supabase user ──
 async function loadAppContext(userId: string, userEmail?: string): Promise<AppContext | null> {
   // 1. Get tenant_user record
+  // maybeSingle() returns null cleanly for new users (no row yet) instead of
+  // throwing 406 — the AuthScreen "setup tenant" flow handles the null case.
   const { data: tu, error: tuErr } = await supabase
     .from("tenant_users")
     .select("*")
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
 
   if (tuErr || !tu) return null;
 
